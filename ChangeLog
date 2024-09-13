@@ -1,3 +1,9 @@
+* vpnc-0.5.4.tar.gz Tue Apr  9 10:19:16 CEST 2019
+
+  User visible changes:
+
+     * Get 2FA auth message when connecting to Fortinet IPSEC VPN
+
 * vpnc-0.5.3.tar.gz Wed Nov 19 21:29:22 CET 2008
 
   User visible changes:
