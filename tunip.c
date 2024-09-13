@@ -269,8 +269,13 @@ static int tun_send_ip(struct sa_block *s)
 		start = (uint8_t *) eth_hdr;
 		len += ETH_HLEN;
 #endif
-	}
-
+	} else {
+#ifdef __APPLE__
+                start -= sizeof(int);
+                len += sizeof(int);
+                *((int *)start) = htonl(AF_INET);
+#endif
+}
 	sent = tun_write(s->tun_fd, start, len);
 	if (sent != len)
 		logmsg(LOG_ERR, "truncated in: %d -> %d\n", len, sent);
@@ -667,6 +672,13 @@ static void process_tun(struct sa_block *s)
 	int size = MAX_PACKET;
 	uint8_t *start = global_buffer_rx + MAX_HEADER;
 
+#if defined(__APPLE__)
+        /* Make sure IP packet starts at buf + MAX_HEADER 
+           Remove Null / Loopback family header*/
+        
+        start -= 4;
+        size += 4;
+#endif
 	if (opt_if_mode == IF_MODE_TAP) {
 		/* Make sure IP packet starts at buf + MAX_HEADER */
 		start -= ETH_HLEN;
@@ -675,7 +687,6 @@ static void process_tun(struct sa_block *s)
 
 	/* Receive a packet from the tunnel interface */
 	pack = tun_read(s->tun_fd, start, size);
-
 	hex_dump("Rx pkt", start, pack, NULL);
 
 	if (opt_if_mode == IF_MODE_TAP) {
@@ -895,7 +906,6 @@ static void vpnc_main_loop(struct sa_block *s)
 			process_tun(s);
 		}
 #endif
-
 		if (FD_ISSET(s->esp_fd, &refds) ) {
 			process_socket(s);
 		}

@@ -24,6 +24,7 @@
 #include <string.h>
 #include <syslog.h>
 #include <sys/ioctl.h>
+#include <net/if.h>
 #include <errno.h>
 
 #include <sys/socket.h>
@@ -61,6 +62,10 @@
 #elif defined(__linux__)
 #include <linux/if_tun.h>
 #elif defined(__APPLE__)
+#include <sys/kern_control.h>
+#include <net/if_utun.h>
+#include <sys/sys_domain.h>
+#include <sys/ioctl.h>
 /* no header for tun */
 #elif defined(__CYGWIN__)
 #include "tap-win32.h"
@@ -454,6 +459,54 @@ int tun_open(char *dev, enum if_mode_enum mode)
 	strcpy(dev, ifr.ifr_name);
 	return fd;
 }
+#elif defined(__APPLE__)
+#define IFF_TUN 0x0001
+#define IFF_TAP 0x0002
+#define IFF_NO_PI 0x1000
+int tun_open(char *dev, enum if_mode_enum mode)
+{
+        int fd;
+        struct ifreq ifr;
+        struct sockaddr_ctl sc;
+        int err;
+
+        if ((fd = socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL)) < 0) {
+                error(0, errno, "can't open control socket");
+                return -1;
+        }
+
+        struct ctl_info info;
+	memset(&info, 0, sizeof(info));
+	strncpy(info.ctl_name, UTUN_CONTROL_NAME, sizeof(info.ctl_name));
+        if(err = ioctl(fd, CTLIOCGINFO, &info) < 0)
+        {
+            printf("ioctl failed with error %d\n", err);
+            return err;
+        }
+	struct sockaddr_sys addr = {
+			.ss_len = sizeof(addr),
+			.ss_family = AF_SYSTEM,
+			.ss_sysaddr = SYSPROTO_CONTROL,
+			.ss_reserved = {info.ctl_id, 0}, // id == 0 make the kernel assign one
+	};
+
+	if(err = connect(fd, (const struct sockaddr *) &addr, sizeof(addr)) < 0)
+        {
+                printf("connect failed with error %d\n", err);
+                return err;
+        }
+
+	if (dev) {
+		socklen_t optlen = IFNAMSIZ;
+		if (err = getsockopt(fd, SYSPROTO_CONTROL, UTUN_OPT_IFNAME, dev, &optlen) < 0)
+                {
+                        printf("getsockopt failed with error %d\n", err);
+                        return err;
+                }
+	}
+        return fd;
+
+}
 #else
 int tun_open(char *dev, enum if_mode_enum mode)
 {
@@ -645,7 +698,7 @@ int tun_write(int fd, unsigned char *buf, int len)
 
 int tun_read(int fd, unsigned char *buf, int len)
 {
-	return read(fd, buf, len);
+        return read(fd, buf, len);
 }
 
 #endif

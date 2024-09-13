@@ -527,23 +527,49 @@ static struct isakmp_attribute *parse_isakmp_attributes(const uint8_t ** data_p,
 		if (r->type == ISAKMP_MODECFG_ATTRIB_CISCO_SPLIT_INC) {
 			r->af = isakmp_attr_acl;
 			r->u.acl.count = length / (4+4+2+2+2);
-			if (r->u.acl.count * (4+4+2+2+2) != length) {
+			printf("ISAKMP_CISCO_SPLIT_INC %d\n", length);
+
+			if (r->u.acl.count * (4+4+2+2+2) == length)
+			{
+				r->u.acl.acl_ent = xallocc(r->u.acl.count * sizeof(struct acl_ent_s));
+
+				for (i = 0; i < r->u.acl.count; i++)
+				{
+					fetchn(&r->u.acl.acl_ent[i].addr.s_addr, 4);
+					fetchn(&r->u.acl.acl_ent[i].mask.s_addr, 4);
+					r->u.acl.acl_ent[i].protocol = fetch2();
+					r->u.acl.acl_ent[i].sport = fetch2();
+					r->u.acl.acl_ent[i].dport = fetch2();
+					hex_dump("t.attributes.u.acl.addr", &r->u.acl.acl_ent[i].addr.s_addr, 4, NULL);
+					hex_dump("t.attributes.u.acl.mask", &r->u.acl.acl_ent[i].mask.s_addr, 4, NULL);
+					hex_dump("t.attributes.u.acl.protocol", &r->u.acl.acl_ent[i].protocol, DUMP_UINT16, NULL);
+					hex_dump("t.attributes.u.acl.sport", &r->u.acl.acl_ent[i].sport, DUMP_UINT16, NULL);
+					hex_dump("t.attributes.u.acl.dport", &r->u.acl.acl_ent[i].dport, DUMP_UINT16, NULL);
+				}
+			} 
+			r->u.acl.count = length / (4+4);
+			if (r->u.acl.count * (4+4) == length) {
+				r->u.acl.acl_ent = xallocc(r->u.acl.count * sizeof(struct acl_ent_s));
+
+				for (i = 0; i < r->u.acl.count; i++)
+				{
+					fetchn(&r->u.acl.acl_ent[i].addr.s_addr, 4);
+					fetchn(&r->u.acl.acl_ent[i].mask.s_addr, 4);
+					r->u.acl.acl_ent[i].protocol = 0;
+					r->u.acl.acl_ent[i].sport = 0;
+					r->u.acl.acl_ent[i].dport = 0;
+					hex_dump("t.attributes.u.acl.addr", &r->u.acl.acl_ent[i].addr.s_addr, 4, NULL);
+					hex_dump("t.attributes.u.acl.mask", &r->u.acl.acl_ent[i].mask.s_addr, 4, NULL);
+					hex_dump("t.attributes.u.acl.protocol", &r->u.acl.acl_ent[i].protocol, DUMP_UINT16, NULL);
+					hex_dump("t.attributes.u.acl.sport", &r->u.acl.acl_ent[i].sport, DUMP_UINT16, NULL);
+					hex_dump("t.attributes.u.acl.dport", &r->u.acl.acl_ent[i].dport, DUMP_UINT16, NULL);
+				
+
+				}
+			}
+			else {
 				*reject = ISAKMP_N_PAYLOAD_MALFORMED;
 				return r;
-			}
-			r->u.acl.acl_ent = xallocc(r->u.acl.count * sizeof(struct acl_ent_s));
-
-			for (i = 0; i < r->u.acl.count; i++) {
-				fetchn(&r->u.acl.acl_ent[i].addr.s_addr, 4);
-				fetchn(&r->u.acl.acl_ent[i].mask.s_addr, 4);
-				r->u.acl.acl_ent[i].protocol = fetch2();
-				r->u.acl.acl_ent[i].sport = fetch2();
-				r->u.acl.acl_ent[i].dport = fetch2();
-				hex_dump("t.attributes.u.acl.addr", &r->u.acl.acl_ent[i].addr.s_addr, 4, NULL);
-				hex_dump("t.attributes.u.acl.mask", &r->u.acl.acl_ent[i].mask.s_addr, 4, NULL);
-				hex_dump("t.attributes.u.acl.protocol", &r->u.acl.acl_ent[i].protocol, DUMP_UINT16, NULL);
-				hex_dump("t.attributes.u.acl.sport", &r->u.acl.acl_ent[i].sport, DUMP_UINT16, NULL);
-				hex_dump("t.attributes.u.acl.dport", &r->u.acl.acl_ent[i].dport, DUMP_UINT16, NULL);
 			}
 		} else {
 			r->u.lots.data = xallocc(length);

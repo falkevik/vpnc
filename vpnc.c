@@ -164,6 +164,7 @@ static ssize_t r_length;
 static struct sa_block *s_atexit_sa;
 
 static void close_tunnel(struct sa_block *s);
+static int split_inc = 0;
 
 void print_vid(const unsigned char *vid, uint16_t len) {
 
@@ -935,6 +936,7 @@ static int mask_to_masklen(struct in_addr mask)
 static int do_config_to_env(struct sa_block *s, struct isakmp_attribute *a)
 {
 	int i;
+	int gi;
 	int reject = 0;
 	int seen_address = 0;
 	char *strbuf, *strbuf2;
@@ -1056,46 +1058,50 @@ static int do_config_to_env(struct sa_block *s, struct isakmp_attribute *a)
 			free(strbuf);
 
 			for (i = 0; i < a->u.acl.count; i++) {
-				DEBUG(2, printf("acl %d: ", i));
+				DEBUG(2, printf("acl %d: ", split_inc));
 				/* NOTE: inet_ntoa returns one static buffer */
-
-				asprintf(&strbuf, "CISCO_SPLIT_INC_%d_ADDR", i);
+				gi=split_inc;
+				asprintf(&strbuf, "CISCO_SPLIT_INC_%d_ADDR", gi);
 				asprintf(&strbuf2, "%s", inet_ntoa(a->u.acl.acl_ent[i].addr));
 				DEBUG(2, printf("addr: %s/", strbuf2));
 				setenv(strbuf, strbuf2, 1);
 				free(strbuf); free(strbuf2);
 
-				asprintf(&strbuf, "CISCO_SPLIT_INC_%d_MASK", i);
+				asprintf(&strbuf, "CISCO_SPLIT_INC_%d_MASK", gi);
 				asprintf(&strbuf2, "%s", inet_ntoa(a->u.acl.acl_ent[i].mask));
 				DEBUG(2, printf("%s ", strbuf2));
 				setenv(strbuf, strbuf2, 1);
 				free(strbuf); free(strbuf2);
 
 				/* this is just here because ip route does not accept netmasks */
-				asprintf(&strbuf, "CISCO_SPLIT_INC_%d_MASKLEN", i);
+				asprintf(&strbuf, "CISCO_SPLIT_INC_%d_MASKLEN", gi);
 				asprintf(&strbuf2, "%d", mask_to_masklen(a->u.acl.acl_ent[i].mask));
 				DEBUG(2, printf("(%s), ", strbuf2));
 				setenv(strbuf, strbuf2, 1);
 				free(strbuf); free(strbuf2);
 
-				asprintf(&strbuf, "CISCO_SPLIT_INC_%d_PROTOCOL", i);
+				asprintf(&strbuf, "CISCO_SPLIT_INC_%d_PROTOCOL", gi);
 				asprintf(&strbuf2, "%hu", a->u.acl.acl_ent[i].protocol);
 				DEBUG(2, printf("protocol: %s, ", strbuf2));
 				setenv(strbuf, strbuf2, 1);
 				free(strbuf); free(strbuf2);
 
-				asprintf(&strbuf, "CISCO_SPLIT_INC_%d_SPORT", i);
+				asprintf(&strbuf, "CISCO_SPLIT_INC_%d_SPORT", gi);
 				asprintf(&strbuf2, "%hu", a->u.acl.acl_ent[i].sport);
 				DEBUG(2, printf("sport: %s, ", strbuf2));
 				setenv(strbuf, strbuf2, 1);
 				free(strbuf); free(strbuf2);
 
-				asprintf(&strbuf, "CISCO_SPLIT_INC_%d_DPORT", i);
+				asprintf(&strbuf, "CISCO_SPLIT_INC_%d_DPORT", gi);
 				asprintf(&strbuf2, "%hu", a->u.acl.acl_ent[i].dport);
 				DEBUG(2, printf("dport: %s\n", strbuf2));
 				setenv(strbuf, strbuf2, 1);
 				free(strbuf); free(strbuf2);
+				split_inc++;
 			}
+			asprintf(&strbuf, "%d", split_inc);
+			setenv("CISCO_SPLIT_INC", strbuf, 1);
+			free(strbuf);
 			break;
 
 		case ISAKMP_MODECFG_ATTRIB_CISCO_SPLIT_DNS:
