@@ -527,7 +527,7 @@ static struct isakmp_attribute *parse_isakmp_attributes(const uint8_t ** data_p,
 		if (r->type == ISAKMP_MODECFG_ATTRIB_CISCO_SPLIT_INC) {
 			r->af = isakmp_attr_acl;
 			r->u.acl.count = length / (4+4+2+2+2);
-			printf("ISAKMP_CISCO_SPLIT_INC %d\n", length);
+			DEBUG(3, printf("ISAKMP_CISCO_SPLIT_INC length %d\n", length));
 
 			if (r->u.acl.count * (4+4+2+2+2) == length)
 			{
