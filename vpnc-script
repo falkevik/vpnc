@@ -696,12 +696,13 @@ search $DOMAINS"
 					close
 				EOF
 				if [ -n "$CISCO_DEF_DOMAIN" ]; then
+					split_dns_list=$(echo $CISCO_SPLIT_DNS | tr ',' ' ')
 					scutil >/dev/null 2>&1 <<-EOF
 						open
 						get State:/Network/Service/$TUNDEV/DNS
 						d.add DomainName $CISCO_DEF_DOMAIN
-						d.add SearchDomains * $CISCO_DEF_DOMAIN
-						d.add SupplementalMatchDomains * $CISCO_DEF_DOMAIN
+						d.add SearchDomains * $CISCO_DEF_DOMAIN $split_dns_list
+						d.add SupplementalMatchDomains * $CISCO_DEF_DOMAIN $split_dns_list
 						set State:/Network/Service/$TUNDEV/DNS
 						close
 					EOF
