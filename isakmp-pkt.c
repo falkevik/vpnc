@@ -604,8 +604,10 @@ static struct isakmp_payload *parse_isakmp_payload(uint8_t type,
 
 	DEBUG(3, printf("\n"));
 	hex_dump("PARSING PAYLOAD type", &type, DUMP_UINT8, isakmp_payload_enum_array);
-	if (type == 0)
-		return NULL;
+	if (type == 0) {
+                *reject = 0;
+                return NULL;
+        }
 	if (type <= ISAKMP_PAYLOAD_MODECFG_ATTR) {
 		if (data_len < min_payload_len[type]) {
 			*reject = ISAKMP_N_PAYLOAD_MALFORMED;
