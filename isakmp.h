@@ -369,8 +369,10 @@ enum ipsec_encap_enum {
 enum ipsec_auth_enum {
 	IPSEC_AUTH_HMAC_MD5 = 1,
 	IPSEC_AUTH_HMAC_SHA,
-	IPSEC_AUTH_DES_MAC,
-	IPSEC_AUTH_KPDK
+        IPSEC_AUTH_HMAC_TIGER,
+	IPSEC_AUTH_HMAC_SHA2_256,
+	IPSEC_AUTH_HMAC_SHA2_384,
+        IPSEC_AUTH_HMAC_SHA2_512
 };
 
 /* Other numbers.  */
