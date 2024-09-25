@@ -463,10 +463,11 @@ int tun_open(char *dev, enum if_mode_enum mode)
 int tun_open(char *dev, enum if_mode_enum mode)
 {
 	int fd;
-	struct ifreq ifr;
-        struct sockaddr_ctl sc;
         int err;
-
+        if (mode == IF_MODE_TAP) {
+        	printf("TAP mode is not supported on MacOS X\n");
+        	return -1;
+        }
         if ((fd = socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL)) < 0) {
         	error(0, errno, "can't open control socket");
         	return -1;
@@ -476,7 +477,7 @@ int tun_open(char *dev, enum if_mode_enum mode)
 	memset(&info, 0, sizeof(info));
 	strncpy(info.ctl_name, UTUN_CONTROL_NAME, sizeof(info.ctl_name));
         
-        if(err = ioctl(fd, CTLIOCGINFO, &info) < 0) {
+        if((err = ioctl(fd, CTLIOCGINFO, &info)) < 0) {
         	printf("ioctl failed with error %d\n", err);
         	return err;
         }
@@ -488,14 +489,14 @@ int tun_open(char *dev, enum if_mode_enum mode)
 			.ss_reserved = {info.ctl_id, 0}, // id == 0 make the kernel assign one
 	};
 
-	if(err = connect(fd, (const struct sockaddr *) &addr, sizeof(addr)) < 0) {
+	if((err = connect(fd, (const struct sockaddr *) &addr, sizeof(addr))) < 0) {
         	printf("connect failed with error %d\n", err);
         	return err;
         }
 
 	if (dev) {
 		socklen_t optlen = IFNAMSIZ;
-		if (err = getsockopt(fd, SYSPROTO_CONTROL, UTUN_OPT_IFNAME, dev, &optlen) < 0) {
+		if ((err = getsockopt(fd, SYSPROTO_CONTROL, UTUN_OPT_IFNAME, dev, &optlen)) < 0) {
         		printf("getsockopt failed with error %d\n", err);
                 	return err;
 		}
@@ -564,7 +565,7 @@ int tun_close(int fd, char *dev)
 #else
 int tun_close(int fd, char *dev)
 {
-	dev = NULL; /*unused */
+	(void)dev; /* unused */
 	return close(fd);
 }
 #endif
@@ -734,9 +735,9 @@ int tun_get_hwaddr(int fd, char *dev, uint8_t *hwaddr)
 	return 0;
 #else
 	/* todo: implement using SIOCGLIFADDR */
-	fd = 0;
-	dev = 0;
-	hwaddr = 0;
+	(void) fd;
+	(void) dev;
+	(void) hwaddr;
 	errno = ENOSYS;
 	return -1;
 #endif

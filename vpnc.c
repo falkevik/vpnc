@@ -1904,7 +1904,7 @@ static void do_phase1_am_packet2(struct sa_block *s, const char *shared_key)
 			gcry_md_close(hm);
 			hex_dump("skeyid_e", skeyid_e, s->ike.md_len, NULL);
 
-			memset(dh_shared_secret, 0, sizeof(dh_shared_secret));
+			memset((void *)dh_shared_secret, 0, sizeof(dh_shared_secret));
 			free(dh_shared_secret);
 
 			/* Determine the IKE encryption key.  */
@@ -2208,7 +2208,7 @@ static int do_phase2_xauth(struct sa_block *s)
 		struct isakmp_attribute *a, *ap, *reply_attr, *last_reply_attr;
 		char ntop_buf[32];
 		int seen_answer = 0;
-
+		DEBUGTOP(2, printf("iteration: %d\n", loopcount));
 		DEBUGTOP(2, printf("S5.2 notice_check\n"));
 
 		/* recv and check for notices */

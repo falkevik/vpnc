@@ -361,8 +361,10 @@ const struct debug_strings ipsec_encap_enum_array[] = {
 const struct debug_strings ipsec_auth_enum_array[] = {
 	{ IPSEC_AUTH_HMAC_MD5,	" (IPSEC_AUTH_HMAC_MD5)" },
 	{ IPSEC_AUTH_HMAC_SHA,	" (IPSEC_AUTH_HMAC_SHA)" },
-	{ IPSEC_AUTH_DES_MAC,	" (IPSEC_AUTH_DES_MAC)" },
-	{ IPSEC_AUTH_KPDK,	" (IPSEC_AUTH_KPDK)" },
+	{ IPSEC_AUTH_HMAC_TIGER,	" (IPSEC_AUTH_HMAC_TIGER)" },
+	{ IPSEC_AUTH_HMAC_SHA2_256,	" (IPSEC_AUTH_HMAC_SHA2_256)" },
+	{ IPSEC_AUTH_HMAC_SHA2_384,	" (IPSEC_AUTH_HMAC_SHA2_384)" },
+	{ IPSEC_AUTH_HMAC_SHA2_512,	" (IPSEC_AUTH_HMAC_SHA2_512)" },
 	{ 0,	(const char *) 0 }
 };
 
