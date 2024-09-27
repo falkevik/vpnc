@@ -3172,10 +3172,14 @@ void process_late_ike(struct sa_block *s, uint8_t *r_packet, ssize_t r_length)
 			 * action SHOULD include cleaning up the local SA database.
 			 */
 			/* FIXME: any cleanup needed??? */
-
+			DEBUG(2, printf("ISAKMP_PAYLOAD_D -> ISAKMP_IPSEC_PROTO_IPSEC_ESP\n"));
+			DEBUG(2, printf("before delete remote -> local spi: %#08x\n", ntohl(s->ipsec.rx.spi)));
+			DEBUG(2, printf("before delete local -> remote spi: %#08x\n", ntohl(s->ipsec.tx.spi)));
 			if (rp->u.d.num_spi >= 1 && memcmp(rp->u.d.spi[0], &s->ipsec.tx.spi, 4) == 0) {
 				free_isakmp_packet(r);
 				do_phase2_qm(s);
+				DEBUG(2, printf("after remote -> local spi: %#08x\n", ntohl(s->ipsec.rx.spi)));
+				DEBUG(2, printf("after local -> remote spi: %#08x\n", ntohl(s->ipsec.tx.spi)));
 				return;
 			} else {
 				DEBUG(2, printf("got isakmp delete with bogus spi (expected %d, received %d), ignoring...\n", s->ipsec.tx.spi, *(rp->u.d.spi[0]) ));
