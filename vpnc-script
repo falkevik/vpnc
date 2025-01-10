@@ -160,7 +160,7 @@ else
 fi
 
 logevent() {
-    #echo "$*" >> $LOG_FILE
+    : #echo "$*" >> $LOG_FILE
 }
 
 detect_resolved_nss_resolve() {
