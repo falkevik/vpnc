@@ -169,7 +169,7 @@ static int encap_rawip_recv(struct sa_block *s, unsigned char *buf, unsigned int
 
 	r = recvfrom(s->esp_fd, buf, bufsize, 0, (struct sockaddr *)&from, &fromlen);
 	if (r == -1) {
-		logmsg(LOG_ERR, "recvfrom: %m");
+		logmsg(LOG_ERR, "recvfrom: %s", strerror(errno));
 		return -1;
 	}
 	if (from.sin_addr.s_addr != s->dst.s_addr) {
@@ -203,7 +203,7 @@ static int encap_udp_recv(struct sa_block *s, unsigned char *buf, unsigned int b
 
 	r = recv(s->esp_fd, buf, bufsize, 0);
 	if (r == -1) {
-		logmsg(LOG_ERR, "recvfrom: %m");
+		logmsg(LOG_ERR, "recvfrom: %s", strerror(errno));
 		return -1;
 	}
 	if (s->ipsec.natt_active_mode == NATT_ACTIVE_DRAFT_OLD && r > 8) {
@@ -441,7 +441,7 @@ static void encap_esp_send_peer(struct sa_block *s, unsigned char *buf, unsigned
 	dstaddr.sin_port = 0;
 	sent = sendto(s->esp_fd, s->ipsec.tx.buf, s->ipsec.tx.buflen, 0, (struct sockaddr *)&dstaddr, sizeof(struct sockaddr_in));
 	if (sent == -1) {
-		logmsg(LOG_ERR, "esp sendto: %m");
+		logmsg(LOG_ERR, "esp sendto: %s", strerror(errno));
 		return;
 	}
 	if (sent != s->ipsec.tx.buflen)
@@ -480,7 +480,7 @@ static void encap_udp_send_peer(struct sa_block *s, unsigned char *buf, unsigned
 
 	sent = send(s->esp_fd, s->ipsec.tx.buf, s->ipsec.tx.buflen, 0);
 	if (sent == -1) {
-		logmsg(LOG_ERR, "udp sendto: %m");
+		logmsg(LOG_ERR, "udp sendto: %s", strerror(errno));
 		return;
 	}
 	if (sent != s->ipsec.tx.buflen)
@@ -700,7 +700,7 @@ static void process_tun(struct sa_block *s)
 	}
 
 	if (pack == -1) {
-		logmsg(LOG_ERR, "read: %m");
+		logmsg(LOG_ERR, "read: %s", strerror(errno));
 		return;
 	}
 
@@ -871,7 +871,7 @@ static void vpnc_main_loop(struct sa_block *s)
 					}
 					/* send nat keepalive packet */
 					if (send(s->esp_fd, keepalive, keepalive_size, 0) == -1) {
-						logmsg(LOG_ERR, "keepalive sendto: %m");
+						logmsg(LOG_ERR, "keepalive sendto: %s", strerror(errno));
 					}
 				}
 				if (s->ike.do_dpd) {
@@ -897,7 +897,7 @@ static void vpnc_main_loop(struct sa_block *s)
 				s->ipsec.life.kbytes));
 		} while ((presult == 0 || (presult == -1 && errno == EINTR)) && !do_kill);
 		if (presult == -1) {
-			logmsg(LOG_ERR, "select: %m");
+			logmsg(LOG_ERR, "select: %s", strerror(errno));
 			continue;
 		}
 
