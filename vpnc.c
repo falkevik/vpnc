@@ -218,12 +218,12 @@ static int setup_esp_udp_socket(int sock) {
 	tv.tv_sec = 5;
 	tv.tv_usec = 0;
 	if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
-	    error(sock, errno, "setsockopt SO_RCVTIMEO");
-	    return -1;
+		error(sock, errno, "setsockopt SO_RCVTIMEO");
+		return -1;
 	}
 
 	return 0;
-    }
+}
 
 static int make_socket(struct sa_block *s, uint16_t src_port, uint16_t dst_port)
 {
