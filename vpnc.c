@@ -211,6 +211,20 @@ static void addenv_ipv4(const void *name, uint8_t * data)
 	addenv(name, inet_ntoa(*((struct in_addr *)data)));
 }
 
+static int setup_esp_udp_socket(int sock) {
+	struct timeval tv;
+
+	// Set receive timeout to 5 seconds
+	tv.tv_sec = 5;
+	tv.tv_usec = 0;
+	if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+	    error(sock, errno, "setsockopt SO_RCVTIMEO");
+	    return -1;
+	}
+
+	return 0;
+    }
+
 static int make_socket(struct sa_block *s, uint16_t src_port, uint16_t dst_port)
 {
 	int sock;
@@ -245,6 +259,9 @@ static int make_socket(struct sa_block *s, uint16_t src_port, uint16_t dst_port)
 	if (getsockname(sock, (struct sockaddr *)&name, &len) < 0)
 		error(1, errno, "reading local address from socket %d", sock);
 	s->src = name.sin_addr;
+
+	/* set recv timeout for failure cases during network outage */
+	setup_esp_udp_socket(sock);
 
 	return sock;
 }
