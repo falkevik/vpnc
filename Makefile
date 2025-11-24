@@ -120,7 +120,7 @@ test : all
 dist : VERSION vpnc.8 vpnc-$(RELEASE_VERSION).tar.gz
 
 clean :
-	-rm -f $(OBJS) $(BINOBJS) $(BINS) tags
+	-rm -f $(OBJS) $(BINOBJS) $(BINS) tags .depend
 
 distclean : clean
 	-rm -f vpnc-debug.c vpnc-debug.h vpnc.ps vpnc.8 .depend
