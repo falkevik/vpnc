@@ -37,7 +37,7 @@ const supported_algo_t supp_dh_group[] = {
 };
 
 const supported_algo_t supp_hash[] = {
-	{"md5", GCRY_MD_MD5, IKE_HASH_MD5, IPSEC_AUTH_HMAC_MD5, 0},
+	//{"md5", GCRY_MD_MD5, IKE_HASH_MD5, IPSEC_AUTH_HMAC_MD5, 0},
 	{"sha1", GCRY_MD_SHA1, IKE_HASH_SHA, IPSEC_AUTH_HMAC_SHA, 0},
         {"sha256", GCRY_MD_SHA256, IKE_HASH_SHA2_256, IPSEC_AUTH_HMAC_SHA2_256, 0},
         {"sha384", GCRY_MD_SHA384, IKE_HASH_SHA2_384, IPSEC_AUTH_HMAC_SHA2_384, 0},
@@ -46,7 +46,7 @@ const supported_algo_t supp_hash[] = {
 };
 
 const supported_algo_t supp_crypt[] = {
-	{"null", GCRY_CIPHER_NONE, IKE_ENC_NO_CBC, ISAKMP_IPSEC_ESP_NULL, 0},
+	//{"null", GCRY_CIPHER_NONE, IKE_ENC_NO_CBC, ISAKMP_IPSEC_ESP_NULL, 0},
 	{"des", GCRY_CIPHER_DES, IKE_ENC_DES_CBC, ISAKMP_IPSEC_ESP_DES, 0},
 	{"3des", GCRY_CIPHER_3DES, IKE_ENC_3DES_CBC, ISAKMP_IPSEC_ESP_3DES, 0},
 	{"aes128", GCRY_CIPHER_AES128, IKE_ENC_AES_CBC, ISAKMP_IPSEC_ESP_AES, 128},

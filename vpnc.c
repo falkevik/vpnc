@@ -164,6 +164,7 @@ static ssize_t r_length;
 static struct sa_block *s_atexit_sa;
 
 static void close_tunnel(struct sa_block *s);
+
 static int split_inc = 0;
 
 void print_vid(const unsigned char *vid, uint16_t len) {
