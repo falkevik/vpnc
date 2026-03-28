@@ -311,9 +311,17 @@ static void cleanup(struct sa_block *s) {
 		gcry_cipher_close(s->ipsec.rx.cry_ctx);
 		s->ipsec.rx.cry_ctx = NULL;
 	}
+	if (s->ipsec.rx.md_ctx) {
+		gcry_md_close(s->ipsec.rx.md_ctx);
+		s->ipsec.rx.md_ctx = NULL;
+	}
 	if (s->ipsec.tx.cry_ctx) {
 		gcry_cipher_close(s->ipsec.tx.cry_ctx);
 		s->ipsec.tx.cry_ctx = NULL;
+	}
+	if (s->ipsec.tx.md_ctx) {
+		gcry_md_close(s->ipsec.tx.md_ctx);
+		s->ipsec.tx.md_ctx = NULL;
 	}
 }
 

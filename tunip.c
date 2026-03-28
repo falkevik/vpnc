@@ -200,32 +200,37 @@ static int encap_rawip_recv(struct sa_block *s, unsigned char *buf, unsigned int
 static int encap_udp_recv(struct sa_block *s, unsigned char *buf, unsigned int bufsize)
 {
 	ssize_t r;
+	ssize_t payload_off = 0;
+	ssize_t payload_len;
 
 	r = recv(s->esp_fd, buf, bufsize, 0);
 	if (r == -1) {
 		logmsg(LOG_ERR, "recvfrom: %s", strerror(errno));
 		return -1;
 	}
+
 	if (s->ipsec.natt_active_mode == NATT_ACTIVE_DRAFT_OLD && r > 8) {
-		r -= 8;
-		memmove(buf, buf + 8, r);
+		/* Skip the 8-byte NAT-T draft old marker without copying packet data. */
+		payload_off = 8;
 	}
-	if( r == 1 && *buf == 0xff )
+	payload_len = r - payload_off;
+
+	if (payload_len == 1 && buf[payload_off] == 0xff)
 	{
 		DEBUGTOP(1, printf("UDP NAT keepalive packet received\n"));
 		return -1;
 	}
-	if (r < s->ipsec.em->fixed_header_size) {
+	if (payload_len < s->ipsec.em->fixed_header_size) {
 		logmsg(LOG_ALERT, "packet too short from %s. got %zd, expected %d",
-			inet_ntoa(s->dst), r, s->ipsec.em->fixed_header_size);
+			inet_ntoa(s->dst), payload_len, s->ipsec.em->fixed_header_size);
 		return -1;
 	}
 
-	s->ipsec.rx.buf = buf;
-	s->ipsec.rx.buflen = r;
+	s->ipsec.rx.buf = buf + payload_off;
+	s->ipsec.rx.buflen = payload_len;
 	s->ipsec.rx.bufpayload = 0;
-	s->ipsec.rx.bufsize = bufsize;
-	return r;
+	s->ipsec.rx.bufsize = bufsize - payload_off;
+	return payload_len;
 }
 
 /*
@@ -279,28 +284,33 @@ static int tun_send_ip(struct sa_block *s)
 	sent = tun_write(s->tun_fd, start, len);
 	if (sent != len)
 		logmsg(LOG_ERR, "truncated in: %d -> %d\n", len, sent);
-	hex_dump("Tx pkt", start, len, NULL);
+	DEBUG(3, hex_dump("Tx pkt", start, len, NULL));
 	return 1;
 }
 
 /*
  * Compute HMAC for an arbitrary stream of bytes
  */
-static int hmac_compute(int md_algo,
-	const unsigned char *data, unsigned int data_size,
-	unsigned char *digest, unsigned char do_store,
+static void hmac_init(gcry_md_hd_t *md_ctx, int md_algo,
 	const unsigned char *secret, unsigned short secret_size)
 {
-	gcry_md_hd_t md_ctx;
+	int ret;
+
+	gcry_md_open(md_ctx, md_algo, GCRY_MD_FLAG_HMAC);
+	assert(*md_ctx != NULL);
+	ret = gcry_md_setkey(*md_ctx, secret, secret_size);
+	assert(ret == 0);
+}
+
+static int hmac_compute(gcry_md_hd_t md_ctx,
+	const unsigned char *data, unsigned int data_size,
+	unsigned char *digest, unsigned char do_store)
+{
 	int ret;
 	unsigned char *hmac_digest;
 	unsigned int hmac_len;
 
-	/* See RFC 2104 */
-	gcry_md_open(&md_ctx, md_algo, GCRY_MD_FLAG_HMAC);
-	assert(md_ctx != NULL);
-	ret = gcry_md_setkey(md_ctx, secret, secret_size);
-	assert(ret == 0);
+	gcry_md_reset(md_ctx);
 	gcry_md_write(md_ctx, data, data_size);
 	gcry_md_final(md_ctx);
 	hmac_digest = gcry_md_read(md_ctx, 0);
@@ -312,7 +322,6 @@ static int hmac_compute(int md_algo,
 	} else
 		ret = memcmp(digest, hmac_digest, hmac_len);
 
-	gcry_md_close(md_ctx);
 	return ret;
 }
 
@@ -360,27 +369,27 @@ static void encap_esp_encapsulate(struct sa_block *s)
 	/* Copy initialization vector in packet */
 	iv = (unsigned char *)(eh + 1);
 	gcry_create_nonce(iv, s->ipsec.iv_len);
-	hex_dump("iv", iv, s->ipsec.iv_len, NULL);
+	DEBUG(3, hex_dump("iv", iv, s->ipsec.iv_len, NULL));
 
-	hex_dump("sending ESP packet (before crypt)", s->ipsec.tx.buf, s->ipsec.tx.buflen, NULL);
+	DEBUG(3, hex_dump("sending ESP packet (before crypt)", s->ipsec.tx.buf, s->ipsec.tx.buflen, NULL));
 
 	if (s->ipsec.cry_algo) {
 		gcry_cipher_setiv(s->ipsec.tx.cry_ctx, iv, s->ipsec.iv_len);
 		gcry_cipher_encrypt(s->ipsec.tx.cry_ctx, cleartext, cleartextlen, NULL, 0);
 	}
 
-	hex_dump("sending ESP packet (after crypt)", s->ipsec.tx.buf, s->ipsec.tx.buflen, NULL);
+	DEBUG(3, hex_dump("sending ESP packet (after crypt)", s->ipsec.tx.buf, s->ipsec.tx.buflen, NULL));
 
 	/* Handle optional authentication field */
 	if (s->ipsec.md_algo) {
-		hmac_compute(s->ipsec.md_algo,
+		hmac_compute(s->ipsec.tx.md_ctx,
 			s->ipsec.tx.buf + s->ipsec.tx.bufpayload,
 			s->ipsec.tx.var_header_size + cleartextlen,
 			s->ipsec.tx.buf + s->ipsec.tx.bufpayload
 			+ s->ipsec.tx.var_header_size + cleartextlen,
-			1, s->ipsec.tx.key_md, s->ipsec.md_len);
+			1);
 		s->ipsec.tx.buflen += 12; /*gcry_md_get_algo_dlen(md_algo); see RFC .. only use 96 bit */
-		hex_dump("sending ESP packet (after ah)", s->ipsec.tx.buf, s->ipsec.tx.buflen, NULL);
+		DEBUG(3, hex_dump("sending ESP packet (after ah)", s->ipsec.tx.buf, s->ipsec.tx.buflen, NULL));
 	}
 }
 
@@ -510,14 +519,12 @@ static int encap_esp_recv_peer(struct sa_block *s)
 	if (s->ipsec.md_algo) {
 		len -= 12; /*gcry_md_get_algo_dlen(peer->local_sa->md_algo); */
 		s->ipsec.rx.buflen -= 12;
-		if (hmac_compute(s->ipsec.md_algo,
+		if (hmac_compute(s->ipsec.rx.md_ctx,
 				s->ipsec.rx.buf + s->ipsec.rx.bufpayload,
 				s->ipsec.em->fixed_header_size + s->ipsec.rx.var_header_size + len,
 				s->ipsec.rx.buf + s->ipsec.rx.bufpayload
 				+ s->ipsec.em->fixed_header_size + s->ipsec.rx.var_header_size + len,
-				0,
-				s->ipsec.rx.key_md,
-				s->ipsec.md_len) != 0) {
+				0) != 0) {
 			logmsg(LOG_ALERT, "HMAC mismatch in ESP mode");
 			return -1;
 		}
@@ -531,9 +538,9 @@ static int encap_esp_recv_peer(struct sa_block *s)
 		return -1;
 	}
 
-	hex_dump("receiving ESP packet (before decrypt)",
+	DEBUG(3, hex_dump("receiving ESP packet (before decrypt)",
 		&s->ipsec.rx.buf[s->ipsec.rx.bufpayload + s->ipsec.em->fixed_header_size +
-			 s->ipsec.rx.var_header_size], len, NULL);
+			 s->ipsec.rx.var_header_size], len, NULL));
 
 	if (s->ipsec.cry_algo) {
 		unsigned char *data;
@@ -544,9 +551,9 @@ static int encap_esp_recv_peer(struct sa_block *s)
 		gcry_cipher_decrypt(s->ipsec.rx.cry_ctx, data, len, NULL, 0);
 	}
 
-	hex_dump("receiving ESP packet (after decrypt)",
+	DEBUG(3, hex_dump("receiving ESP packet (after decrypt)",
 		&s->ipsec.rx.buf[s->ipsec.rx.bufpayload + s->ipsec.em->fixed_header_size +
-			s->ipsec.rx.var_header_size], len, NULL);
+			s->ipsec.rx.var_header_size], len, NULL));
 
 	padlen = s->ipsec.rx.buf[s->ipsec.rx.bufpayload
 		+ s->ipsec.em->fixed_header_size + s->ipsec.rx.var_header_size + len - 2];
@@ -640,7 +647,7 @@ static int process_arp(struct sa_block *s, uint8_t *frame)
 
 	frame_size = ETH_HLEN + sizeof(struct ether_arp);
 	tun_write(s->tun_fd, frame, frame_size);
-	hex_dump("ARP reply", frame, frame_size, NULL);
+	DEBUG(3, hex_dump("ARP reply", frame, frame_size, NULL));
 
 	return 1;
 #else
@@ -687,7 +694,11 @@ static void process_tun(struct sa_block *s)
 
 	/* Receive a packet from the tunnel interface */
 	pack = tun_read(s->tun_fd, start, size);
-	hex_dump("Rx pkt", start, pack, NULL);
+	if (pack == -1) {
+		logmsg(LOG_ERR, "read: %s", strerror(errno));
+		return;
+	}
+	DEBUG(3, hex_dump("Rx pkt", start, pack, NULL));
 
 	if (opt_if_mode == IF_MODE_TAP) {
 		if (process_arp(s, start)) {
@@ -697,11 +708,6 @@ static void process_tun(struct sa_block *s)
 			return;
 		}
 		pack -= ETH_HLEN;
-	}
-
-	if (pack == -1) {
-		logmsg(LOG_ERR, "read: %s", strerror(errno));
-		return;
 	}
 
 	/* Don't access the contents of the buffer other than byte aligned.
@@ -1011,10 +1017,8 @@ void vpnc_doit(struct sa_block *s)
 	s->ipsec.em = &meth;
 
 	s->ipsec.rx.key_cry = s->ipsec.rx.key;
-	hex_dump("rx.key_cry", s->ipsec.rx.key_cry, s->ipsec.key_len, NULL);
 
 	s->ipsec.rx.key_md = s->ipsec.rx.key + s->ipsec.key_len;
-	hex_dump("rx.key_md", s->ipsec.rx.key_md, s->ipsec.md_len, NULL);
 
 	if (s->ipsec.cry_algo) {
 		gcry_cipher_open(&s->ipsec.rx.cry_ctx, s->ipsec.cry_algo, GCRY_CIPHER_MODE_CBC, 0);
@@ -1022,18 +1026,28 @@ void vpnc_doit(struct sa_block *s)
 	} else {
 		s->ipsec.rx.cry_ctx = NULL;
 	}
+	if (s->ipsec.md_algo) {
+		hmac_init(&s->ipsec.rx.md_ctx, s->ipsec.md_algo,
+			s->ipsec.rx.key_md, s->ipsec.md_len);
+	} else {
+		s->ipsec.rx.md_ctx = NULL;
+	}
 
 	s->ipsec.tx.key_cry = s->ipsec.tx.key;
-	hex_dump("tx.key_cry", s->ipsec.tx.key_cry, s->ipsec.key_len, NULL);
 
 	s->ipsec.tx.key_md = s->ipsec.tx.key + s->ipsec.key_len;
-	hex_dump("tx.key_md", s->ipsec.tx.key_md, s->ipsec.md_len, NULL);
 
 	if (s->ipsec.cry_algo) {
 		gcry_cipher_open(&s->ipsec.tx.cry_ctx, s->ipsec.cry_algo, GCRY_CIPHER_MODE_CBC, 0);
 		gcry_cipher_setkey(s->ipsec.tx.cry_ctx, s->ipsec.tx.key_cry, s->ipsec.key_len);
 	} else {
 		s->ipsec.tx.cry_ctx = NULL;
+	}
+	if (s->ipsec.md_algo) {
+		hmac_init(&s->ipsec.tx.md_ctx, s->ipsec.md_algo,
+			s->ipsec.tx.key_md, s->ipsec.md_len);
+	} else {
+		s->ipsec.tx.md_ctx = NULL;
 	}
 
 	DEBUG(2, printf("remote -> local spi: %#08x\n", ntohl(s->ipsec.rx.spi)));

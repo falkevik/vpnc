@@ -42,6 +42,7 @@ struct ike_sa {
 	uint8_t *key_cry;
 	gcry_cipher_hd_t cry_ctx;
 	uint8_t *key_md;
+	gcry_md_hd_t md_ctx;
 
 	/* Description of the packet being processed */
 	unsigned char *buf;
