@@ -325,6 +325,59 @@ static int hmac_compute(gcry_md_hd_t md_ctx,
 	return ret;
 }
 
+static int esp_aead_encrypt(struct sa_block *s, esp_encap_header_t *eh,
+	const unsigned char *iv, unsigned char *cleartext, unsigned int cleartextlen,
+	unsigned char *tag)
+{
+#if defined(GCRYPT_VERSION_NUMBER) && (GCRYPT_VERSION_NUMBER >= 0x010600)
+	unsigned char nonce[12];
+
+	memcpy(nonce, s->ipsec.tx.salt, s->ipsec.aead_salt_len);
+	memcpy(nonce + s->ipsec.aead_salt_len, iv, s->ipsec.iv_len);
+
+	gcry_cipher_reset(s->ipsec.tx.cry_ctx);
+	gcry_cipher_setiv(s->ipsec.tx.cry_ctx, nonce, sizeof(nonce));
+	gcry_cipher_authenticate(s->ipsec.tx.cry_ctx, eh, sizeof(*eh));
+	gcry_cipher_encrypt(s->ipsec.tx.cry_ctx, cleartext, cleartextlen, NULL, 0);
+	gcry_cipher_gettag(s->ipsec.tx.cry_ctx, tag, s->ipsec.aead_tag_len);
+	return 0;
+#else
+	(void)s;
+	(void)eh;
+	(void)iv;
+	(void)cleartext;
+	(void)cleartextlen;
+	(void)tag;
+	return -1;
+#endif
+}
+
+static int esp_aead_decrypt(struct sa_block *s, esp_encap_header_t *eh,
+	const unsigned char *iv, unsigned char *ciphertext, unsigned int ciphertextlen,
+	const unsigned char *tag)
+{
+#if defined(GCRYPT_VERSION_NUMBER) && (GCRYPT_VERSION_NUMBER >= 0x010600)
+	unsigned char nonce[12];
+
+	memcpy(nonce, s->ipsec.rx.salt, s->ipsec.aead_salt_len);
+	memcpy(nonce + s->ipsec.aead_salt_len, iv, s->ipsec.iv_len);
+
+	gcry_cipher_reset(s->ipsec.rx.cry_ctx);
+	gcry_cipher_setiv(s->ipsec.rx.cry_ctx, nonce, sizeof(nonce));
+	gcry_cipher_authenticate(s->ipsec.rx.cry_ctx, eh, sizeof(*eh));
+	gcry_cipher_decrypt(s->ipsec.rx.cry_ctx, ciphertext, ciphertextlen, NULL, 0);
+	return gcry_cipher_checktag(s->ipsec.rx.cry_ctx, tag, s->ipsec.aead_tag_len);
+#else
+	(void)s;
+	(void)eh;
+	(void)iv;
+	(void)ciphertext;
+	(void)ciphertextlen;
+	(void)tag;
+	return -1;
+#endif
+}
+
 /*
  * Encapsulate a packet in ESP
  */
@@ -374,8 +427,18 @@ static void encap_esp_encapsulate(struct sa_block *s)
 	DEBUG(3, hex_dump("sending ESP packet (before crypt)", s->ipsec.tx.buf, s->ipsec.tx.buflen, NULL));
 
 	if (s->ipsec.cry_algo) {
-		gcry_cipher_setiv(s->ipsec.tx.cry_ctx, iv, s->ipsec.iv_len);
-		gcry_cipher_encrypt(s->ipsec.tx.cry_ctx, cleartext, cleartextlen, NULL, 0);
+		if (s->ipsec.is_aead) {
+			if (esp_aead_encrypt(s, eh, iv, cleartext, cleartextlen,
+				s->ipsec.tx.buf + s->ipsec.tx.bufpayload
+				+ s->ipsec.tx.var_header_size + cleartextlen) != 0) {
+				logmsg(LOG_ALERT, "AES-GCM encryption failed");
+				return;
+			}
+			s->ipsec.tx.buflen += s->ipsec.aead_tag_len;
+		} else {
+			gcry_cipher_setiv(s->ipsec.tx.cry_ctx, iv, s->ipsec.iv_len);
+			gcry_cipher_encrypt(s->ipsec.tx.cry_ctx, cleartext, cleartextlen, NULL, 0);
+		}
 	}
 
 	DEBUG(3, hex_dump("sending ESP packet (after crypt)", s->ipsec.tx.buf, s->ipsec.tx.buflen, NULL));
@@ -504,6 +567,7 @@ static int encap_esp_recv_peer(struct sa_block *s)
 	unsigned char padlen, next_header;
 	unsigned char *pad;
 	unsigned char *iv;
+	unsigned char *data;
 
 	s->ipsec.rx.var_header_size = s->ipsec.iv_len;
 	iv = s->ipsec.rx.buf + s->ipsec.rx.bufpayload + s->ipsec.em->fixed_header_size;
@@ -530,8 +594,17 @@ static int encap_esp_recv_peer(struct sa_block *s)
 		}
 	}
 
+	if (s->ipsec.is_aead) {
+		if (len < (int) s->ipsec.aead_tag_len) {
+			logmsg(LOG_ALERT, "Packet too short for AES-GCM tag");
+			return -1;
+		}
+		len -= s->ipsec.aead_tag_len;
+		s->ipsec.rx.buflen -= s->ipsec.aead_tag_len;
+	}
+
 	blksz = s->ipsec.blk_len;
-	if (s->ipsec.cry_algo && ((len % blksz) != 0)) {
+	if (s->ipsec.cry_algo && !s->ipsec.is_aead && ((len % blksz) != 0)) {
 		logmsg(LOG_ALERT,
 			"payload len %d not a multiple of algorithm block size %lu", len,
 			(unsigned long)blksz);
@@ -543,12 +616,21 @@ static int encap_esp_recv_peer(struct sa_block *s)
 			 s->ipsec.rx.var_header_size], len, NULL));
 
 	if (s->ipsec.cry_algo) {
-		unsigned char *data;
-
 		data = (s->ipsec.rx.buf + s->ipsec.rx.bufpayload
 			+ s->ipsec.em->fixed_header_size + s->ipsec.rx.var_header_size);
-		gcry_cipher_setiv(s->ipsec.rx.cry_ctx, iv, s->ipsec.iv_len);
-		gcry_cipher_decrypt(s->ipsec.rx.cry_ctx, data, len, NULL, 0);
+		if (s->ipsec.is_aead) {
+			if (esp_aead_decrypt(s,
+				(esp_encap_header_t *)(s->ipsec.rx.buf + s->ipsec.rx.bufpayload),
+				iv, data, len,
+				s->ipsec.rx.buf + s->ipsec.rx.bufpayload
+				+ s->ipsec.em->fixed_header_size + s->ipsec.rx.var_header_size + len) != 0) {
+				logmsg(LOG_ALERT, "AES-GCM tag verification failed");
+				return -1;
+			}
+		} else {
+			gcry_cipher_setiv(s->ipsec.rx.cry_ctx, iv, s->ipsec.iv_len);
+			gcry_cipher_decrypt(s->ipsec.rx.cry_ctx, data, len, NULL, 0);
+		}
 	}
 
 	DEBUG(3, hex_dump("receiving ESP packet (after decrypt)",
@@ -1018,10 +1100,12 @@ void vpnc_doit(struct sa_block *s)
 
 	s->ipsec.rx.key_cry = s->ipsec.rx.key;
 
-	s->ipsec.rx.key_md = s->ipsec.rx.key + s->ipsec.key_len;
+	s->ipsec.rx.key_md = s->ipsec.rx.key + s->ipsec.keymat_cry_len;
+	if (s->ipsec.is_aead)
+		memcpy(s->ipsec.rx.salt, s->ipsec.rx.key + s->ipsec.key_len, s->ipsec.aead_salt_len);
 
 	if (s->ipsec.cry_algo) {
-		gcry_cipher_open(&s->ipsec.rx.cry_ctx, s->ipsec.cry_algo, GCRY_CIPHER_MODE_CBC, 0);
+		gcry_cipher_open(&s->ipsec.rx.cry_ctx, s->ipsec.cry_algo, s->ipsec.cry_mode, 0);
 		gcry_cipher_setkey(s->ipsec.rx.cry_ctx, s->ipsec.rx.key_cry, s->ipsec.key_len);
 	} else {
 		s->ipsec.rx.cry_ctx = NULL;
@@ -1035,10 +1119,12 @@ void vpnc_doit(struct sa_block *s)
 
 	s->ipsec.tx.key_cry = s->ipsec.tx.key;
 
-	s->ipsec.tx.key_md = s->ipsec.tx.key + s->ipsec.key_len;
+	s->ipsec.tx.key_md = s->ipsec.tx.key + s->ipsec.keymat_cry_len;
+	if (s->ipsec.is_aead)
+		memcpy(s->ipsec.tx.salt, s->ipsec.tx.key + s->ipsec.key_len, s->ipsec.aead_salt_len);
 
 	if (s->ipsec.cry_algo) {
-		gcry_cipher_open(&s->ipsec.tx.cry_ctx, s->ipsec.cry_algo, GCRY_CIPHER_MODE_CBC, 0);
+		gcry_cipher_open(&s->ipsec.tx.cry_ctx, s->ipsec.cry_algo, s->ipsec.cry_mode, 0);
 		gcry_cipher_setkey(s->ipsec.tx.cry_ctx, s->ipsec.tx.key_cry, s->ipsec.key_len);
 	} else {
 		s->ipsec.tx.cry_ctx = NULL;

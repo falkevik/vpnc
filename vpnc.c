@@ -912,6 +912,43 @@ static void phase2_fatal(struct sa_block *s, const char *msg, int id)
 	error(1, 0, msg, val_to_string(id, isakmp_notify_enum_array), id);
 }
 
+static int ipsec_is_aead_transform(int transform_id)
+{
+	return (transform_id == ISAKMP_IPSEC_ESP_AES_GCM_8
+		|| transform_id == ISAKMP_IPSEC_ESP_AES_GCM_12
+		|| transform_id == ISAKMP_IPSEC_ESP_AES_GCM_16);
+}
+
+static void ipsec_set_crypto_params(struct sa_block *s, int transform_id, int cry_algo, int md_algo)
+{
+	s->ipsec.cry_algo = cry_algo;
+	s->ipsec.md_algo = md_algo;
+	s->ipsec.is_aead = ipsec_is_aead_transform(transform_id);
+#if defined(GCRYPT_VERSION_NUMBER) && (GCRYPT_VERSION_NUMBER >= 0x010600)
+	s->ipsec.cry_mode = s->ipsec.is_aead ? GCRY_CIPHER_MODE_GCM : GCRY_CIPHER_MODE_CBC;
+#else
+	if (s->ipsec.is_aead)
+		error(1, 0, "AES-GCM requires libgcrypt with GCM mode support");
+	s->ipsec.cry_mode = GCRY_CIPHER_MODE_CBC;
+#endif
+	s->ipsec.aead_salt_len = s->ipsec.is_aead ? 4 : 0;
+	s->ipsec.aead_tag_len = s->ipsec.is_aead ? 16 : 0;
+
+	if (s->ipsec.cry_algo) {
+		gcry_cipher_algo_info(s->ipsec.cry_algo, GCRYCTL_GET_KEYLEN, NULL, &(s->ipsec.key_len));
+		gcry_cipher_algo_info(s->ipsec.cry_algo, GCRYCTL_GET_BLKLEN, NULL, &(s->ipsec.blk_len));
+		s->ipsec.keymat_cry_len = s->ipsec.key_len + s->ipsec.aead_salt_len;
+		s->ipsec.iv_len = s->ipsec.is_aead ? 8 : s->ipsec.blk_len;
+	} else {
+		s->ipsec.key_len = 0;
+		s->ipsec.keymat_cry_len = 0;
+		s->ipsec.iv_len = 0;
+		s->ipsec.blk_len = 8; /* seems to be this without encryption... */
+	}
+
+	s->ipsec.md_len = s->ipsec.md_algo ? gcry_md_get_algo_dlen(s->ipsec.md_algo) : 0;
+}
+
 static uint8_t *gen_keymat(struct sa_block *s,
 	uint8_t protocol, uint32_t spi,
 	const uint8_t * dh_shared, size_t dh_size,
@@ -923,7 +960,7 @@ static uint8_t *gen_keymat(struct sa_block *s,
 	int blksz;
 	int cnt;
 
-	blksz = s->ipsec.md_len + s->ipsec.key_len;
+	blksz = s->ipsec.md_len + s->ipsec.keymat_cry_len;
 	cnt = (blksz + s->ike.md_len - 1) / s->ike.md_len;
 	block = xallocc(cnt * s->ike.md_len);
 	DEBUG(3, printf("generating %d bytes keymat (cnt=%d)\n", blksz, cnt));
@@ -2558,7 +2595,7 @@ static int do_phase2_config(struct sa_block *s)
 	return 0;
 }
 
-static struct isakmp_attribute *make_transform_ipsec(struct sa_block *s, int dh_group, int hash, int keylen)
+static struct isakmp_attribute *make_transform_ipsec(struct sa_block *s, int dh_group, int hash, int keylen, int is_aead)
 {
 	struct isakmp_attribute *a = NULL;
 
@@ -2571,12 +2608,57 @@ static struct isakmp_attribute *make_transform_ipsec(struct sa_block *s, int dh_
 
 	if (dh_group)
 		a = new_isakmp_attribute_16(ISAKMP_IPSEC_ATTRIB_GROUP_DESC, dh_group, a);
-	a = new_isakmp_attribute_16(ISAKMP_IPSEC_ATTRIB_AUTH_ALG, hash, a);
+	if (!is_aead)
+		a = new_isakmp_attribute_16(ISAKMP_IPSEC_ATTRIB_AUTH_ALG, hash, a);
 	a = new_isakmp_attribute_16(ISAKMP_IPSEC_ATTRIB_ENCAP_MODE, s->ipsec.encap_mode, a);
 	if (keylen != 0)
 		a = new_isakmp_attribute_16(ISAKMP_IPSEC_ATTRIB_KEY_LENGTH, keylen, a);
 
 	return a;
+}
+
+static void debug_dump_qm_offer_order(struct isakmp_payload *p)
+{
+	int i;
+
+	for (i = 0; p; p = p->next, i++) {
+		int seen_enc = p->u.p.transforms->u.t.id;
+		int seen_auth = 0;
+		int seen_keylen = 0;
+		int enc_is_aead = ipsec_is_aead_transform(seen_enc);
+		const supported_algo_t *sel_crypt;
+		const supported_algo_t *sel_hash = NULL;
+		struct isakmp_attribute *a;
+
+		for (a = p->u.p.transforms->u.t.attributes; a; a = a->next) {
+			switch (a->type) {
+			case ISAKMP_IPSEC_ATTRIB_AUTH_ALG:
+				if (a->af == isakmp_attr_16)
+					seen_auth = a->u.attr_16;
+				break;
+			case ISAKMP_IPSEC_ATTRIB_KEY_LENGTH:
+				if (a->af == isakmp_attr_16)
+					seen_keylen = a->u.attr_16;
+				break;
+			default:
+				break;
+			}
+		}
+
+		sel_crypt = get_algo(SUPP_ALGO_CRYPT, SUPP_ALGO_IPSEC_SA, seen_enc, NULL, seen_keylen);
+		if (!enc_is_aead && seen_auth)
+			sel_hash = get_algo(SUPP_ALGO_HASH, SUPP_ALGO_IPSEC_SA, seen_auth, NULL, 0);
+
+		DEBUG(2, printf("QM offer wire order[%d]: ESP=%s(%d) keylen=%d auth=%s(%d) aead=%s\n",
+			i,
+			sel_crypt ? sel_crypt->name : val_to_string(seen_enc, isakmp_ipsec_esp_enum_array),
+			seen_enc,
+			seen_keylen,
+			enc_is_aead ? "(none)" :
+				(sel_hash ? sel_hash->name : val_to_string(seen_auth, ipsec_auth_enum_array)),
+			seen_auth,
+			enc_is_aead ? "yes" : "no"));
+	}
 }
 
 static struct isakmp_payload *make_our_sa_ipsec(struct sa_block *s)
@@ -2586,30 +2668,67 @@ static struct isakmp_payload *make_our_sa_ipsec(struct sa_block *s)
 	struct isakmp_attribute *a;
 	int dh_grp = get_dh_group_ipsec(s->ipsec.do_pfs)->ipsec_sa_id;
 	unsigned int crypt, hash, keylen;
+	int pass;
 	int i;
 
 	r = new_isakmp_payload(ISAKMP_PAYLOAD_SA);
 	r->u.sa.doi = ISAKMP_DOI_IPSEC;
 	r->u.sa.situation = ISAKMP_IPSEC_SIT_IDENTITY_ONLY;
-	for (crypt = 0; supp_crypt[crypt].name != NULL; crypt++) {
-		keylen = supp_crypt[crypt].keylen;
-		for (hash = 0; supp_hash[hash].name != NULL; hash++) {
-			pn = p;
-			p = new_isakmp_payload(ISAKMP_PAYLOAD_P);
-			p->u.p.spi_size = 4;
-			p->u.p.spi = xallocc(4);
-			/* The sadb_sa_spi field is already in network order.  */
-			memcpy(p->u.p.spi, &s->ipsec.rx.spi, 4);
-			p->u.p.prot_id = ISAKMP_IPSEC_PROTO_IPSEC_ESP;
-			p->u.p.transforms = new_isakmp_payload(ISAKMP_PAYLOAD_T);
-			p->u.p.transforms->u.t.id = supp_crypt[crypt].ipsec_sa_id;
-			a = make_transform_ipsec(s, dh_grp, supp_hash[hash].ipsec_sa_id, keylen);
-			p->u.p.transforms->u.t.attributes = a;
-			p->next = pn;
+
+	/*
+	 * Proposals are prepended to the list, so generate non-AEAD first and
+	 * AEAD second to guarantee AES-GCM is offered with higher priority.
+	 */
+	for (pass = 0; pass < 2; pass++) {
+		for (crypt = 0; supp_crypt[crypt].name != NULL; crypt++) {
+			int is_aead = ipsec_is_aead_transform(supp_crypt[crypt].ipsec_sa_id);
+
+			//if (!is_aead)
+			//	continue;
+
+			if ((pass == 0 && is_aead) || (pass == 1 && !is_aead))
+				continue;
+
+			keylen = supp_crypt[crypt].keylen;
+			if (is_aead) {
+				pn = p;
+				p = new_isakmp_payload(ISAKMP_PAYLOAD_P);
+				p->u.p.spi_size = 4;
+				p->u.p.spi = xallocc(4);
+				/* The sadb_sa_spi field is already in network order.  */
+				memcpy(p->u.p.spi, &s->ipsec.rx.spi, 4);
+				p->u.p.prot_id = ISAKMP_IPSEC_PROTO_IPSEC_ESP;
+				p->u.p.transforms = new_isakmp_payload(ISAKMP_PAYLOAD_T);
+				p->u.p.transforms->u.t.id = supp_crypt[crypt].ipsec_sa_id;
+				a = make_transform_ipsec(s, dh_grp, 0, keylen, 1);
+				p->u.p.transforms->u.t.attributes = a;
+				p->next = pn;
+				continue;
+			}
+
+			for (hash = 0; supp_hash[hash].name != NULL; hash++) {
+				pn = p;
+				p = new_isakmp_payload(ISAKMP_PAYLOAD_P);
+				p->u.p.spi_size = 4;
+				p->u.p.spi = xallocc(4);
+				/* The sadb_sa_spi field is already in network order.  */
+				memcpy(p->u.p.spi, &s->ipsec.rx.spi, 4);
+				p->u.p.prot_id = ISAKMP_IPSEC_PROTO_IPSEC_ESP;
+				p->u.p.transforms = new_isakmp_payload(ISAKMP_PAYLOAD_T);
+				p->u.p.transforms->u.t.id = supp_crypt[crypt].ipsec_sa_id;
+				a = make_transform_ipsec(s, dh_grp, supp_hash[hash].ipsec_sa_id, keylen, 0);
+				p->u.p.transforms->u.t.attributes = a;
+				p->next = pn;
+			}
 		}
 	}
+
+	if (p == NULL)
+		error(1, 0, "No ESP transforms available to offer");
+
 	for (i = 0, pn = p; pn; pn = pn->next)
 		pn->u.p.number = i++;
+	debug_dump_qm_offer_order(p);
 	r->u.sa.proposals = p;
 	return r;
 }
@@ -2721,6 +2840,7 @@ static void do_phase2_qm(struct sa_block *s)
 				struct isakmp_attribute *a
 					= rp->u.sa.proposals->u.p.transforms->u.t.attributes;
 				int seen_enc = rp->u.sa.proposals->u.p.transforms->u.t.id;
+				int enc_is_aead = ipsec_is_aead_transform(seen_enc);
 				int seen_auth = 0, seen_encap = 0, seen_group = 0, seen_keylen = 0;
 
 				memcpy(&s->ipsec.tx.spi, rp->u.sa.proposals->u.p.spi, 4);
@@ -2769,11 +2889,21 @@ static void do_phase2_qm(struct sa_block *s)
 						reject = ISAKMP_N_ATTRIBUTES_NOT_SUPPORTED;
 						break;
 					}
-				if (reject == 0 && (!seen_auth || !seen_encap ||
+
+				DEBUG(2, printf("QM responder proposal: ESP=%s(%d) keylen=%d auth=%s(%d) aead=%s encap_ok=%s pfs_ok=%s\n",
+					val_to_string(seen_enc, isakmp_ipsec_esp_enum_array), seen_enc,
+					seen_keylen,
+					seen_auth ? val_to_string(seen_auth, ipsec_auth_enum_array) : "(none)",
+					seen_auth,
+					enc_is_aead ? "yes" : "no",
+					seen_encap ? "yes" : "no",
+					(!dh_grp || seen_group) ? "yes" : "no"));
+
+				if (reject == 0 && ((!enc_is_aead && !seen_auth) || !seen_encap ||
 						(dh_grp && !seen_group)))
 					reject = ISAKMP_N_BAD_PROPOSAL_SYNTAX;
 
-				if (reject == 0
+				if (reject == 0 && !enc_is_aead
 					&& get_algo(SUPP_ALGO_HASH, SUPP_ALGO_IPSEC_SA, seen_auth,
 						NULL, 0) == NULL)
 					reject = ISAKMP_N_BAD_PROPOSAL_SYNTAX;
@@ -2783,28 +2913,21 @@ static void do_phase2_qm(struct sa_block *s)
 					reject = ISAKMP_N_BAD_PROPOSAL_SYNTAX;
 
 				if (reject == 0) {
-					s->ipsec.cry_algo =
-						get_algo(SUPP_ALGO_CRYPT, SUPP_ALGO_IPSEC_SA,
-						seen_enc, NULL, seen_keylen)->my_id;
-					s->ipsec.md_algo =
-						get_algo(SUPP_ALGO_HASH, SUPP_ALGO_IPSEC_SA,
-						seen_auth, NULL, 0)->my_id;
-					if (s->ipsec.cry_algo) {
-						gcry_cipher_algo_info(s->ipsec.cry_algo, GCRYCTL_GET_KEYLEN, NULL, &(s->ipsec.key_len));
-						gcry_cipher_algo_info(s->ipsec.cry_algo, GCRYCTL_GET_BLKLEN, NULL, &(s->ipsec.blk_len));
-						s->ipsec.iv_len = s->ipsec.blk_len;
-					} else {
-						s->ipsec.key_len = 0;
-						s->ipsec.iv_len = 0;
-						s->ipsec.blk_len = 8; /* seems to be this without encryption... */
-					}
-					s->ipsec.md_len = gcry_md_get_algo_dlen(s->ipsec.md_algo);
-					DEBUG(1, printf("IPSEC SA selected %s-%s\n",
-							get_algo(SUPP_ALGO_CRYPT,
-								SUPP_ALGO_IPSEC_SA, seen_enc, NULL,
-								seen_keylen)->name,
-							get_algo(SUPP_ALGO_HASH, SUPP_ALGO_IPSEC_SA,
-								seen_auth, NULL, 0)->name));
+					const supported_algo_t *sel_crypt;
+					const supported_algo_t *sel_hash = NULL;
+
+					sel_crypt = get_algo(SUPP_ALGO_CRYPT, SUPP_ALGO_IPSEC_SA,
+						seen_enc, NULL, seen_keylen);
+					if (!enc_is_aead)
+						sel_hash = get_algo(SUPP_ALGO_HASH, SUPP_ALGO_IPSEC_SA,
+							seen_auth, NULL, 0);
+
+					ipsec_set_crypto_params(s, seen_enc, sel_crypt->my_id,
+						sel_hash ? sel_hash->my_id : 0);
+					DEBUG(1, printf("IPSEC SA selected %s%s%s\n",
+						sel_crypt->name,
+						enc_is_aead ? "" : "-",
+						enc_is_aead ? "" : sel_hash->name));
 					if (s->ipsec.cry_algo == GCRY_CIPHER_DES && !opt_1des) {
 						error(1, 0, "peer selected (single) DES as \"encrytion\" method.\n"
 							"This algorithm is considered too weak today\n"
@@ -2816,7 +2939,7 @@ static void do_phase2_qm(struct sa_block *s)
 							"Your traffic is still protected against modification with %s\n"
 							"If your vpn concentrator admin still insists on not using encryption\n"
 							"use the \"--enable-no-encryption\" option.\n",
-							get_algo(SUPP_ALGO_HASH, SUPP_ALGO_IPSEC_SA, seen_auth, NULL, 0)->name);
+							sel_hash ? sel_hash->name : "none");
 					}
 				}
 			}
@@ -2892,6 +3015,7 @@ static void do_phase2_qm(struct sa_block *s)
 				s->ipsec.natt_active_mode = NATT_ACTIVE_CISCO_UDP;
 			} else if (s->ipsec.encap_mode != IPSEC_ENCAP_TUNNEL) {
 				s->esp_fd = s->ike_fd;
+				setup_esp_udp_socket(s->esp_fd);
 			} else {
 #ifdef IP_HDRINCL
 				int hincl = 1;
@@ -2952,6 +3076,8 @@ static int do_rekey(struct sa_block *s, struct isakmp_packet *r)
 		return ISAKMP_N_BAD_PROPOSAL_SYNTAX;
 
 	seen_enc = rp->u.sa.proposals->u.p.transforms->u.t.id;
+	{
+		int enc_is_aead = ipsec_is_aead_transform(seen_enc);
 
 	memcpy(&s->ipsec.tx.spi, rp->u.sa.proposals->u.p.spi, 4);
 
@@ -3001,13 +3127,13 @@ static int do_rekey(struct sa_block *s, struct isakmp_packet *r)
 			return ISAKMP_N_ATTRIBUTES_NOT_SUPPORTED;
 			break;
 		}
-	if (!seen_auth || !seen_encap || (dh_grp && !seen_group))
+	if ((!enc_is_aead && !seen_auth) || !seen_encap || (dh_grp && !seen_group))
 		return ISAKMP_N_BAD_PROPOSAL_SYNTAX;
 
 	/* FIXME: Current code has a limitation that will cause problems if
 	 * different algorithms are negotiated during re-keying
 	 */
-	if ((get_algo(SUPP_ALGO_HASH, SUPP_ALGO_IPSEC_SA, seen_auth, NULL, 0) == NULL) ||
+	if ((!enc_is_aead && get_algo(SUPP_ALGO_HASH, SUPP_ALGO_IPSEC_SA, seen_auth, NULL, 0) == NULL) ||
 	    (get_algo(SUPP_ALGO_CRYPT, SUPP_ALGO_IPSEC_SA, seen_enc, NULL, seen_keylen) == NULL)) {
 		printf("\nFIXME: vpnc doesn't support change of algorightms during rekeying\n");
 		return ISAKMP_N_BAD_PROPOSAL_SYNTAX;
@@ -3016,8 +3142,11 @@ static int do_rekey(struct sa_block *s, struct isakmp_packet *r)
 	/* we don't want to change ciphers during rekeying */
 	if (s->ipsec.cry_algo != get_algo(SUPP_ALGO_CRYPT, SUPP_ALGO_IPSEC_SA, seen_enc,  NULL, seen_keylen)->my_id)
 		return ISAKMP_N_BAD_PROPOSAL_SYNTAX;
-	if (s->ipsec.md_algo  != get_algo(SUPP_ALGO_HASH,  SUPP_ALGO_IPSEC_SA, seen_auth, NULL, 0)->my_id)
+	if (!enc_is_aead && s->ipsec.md_algo  != get_algo(SUPP_ALGO_HASH,  SUPP_ALGO_IPSEC_SA, seen_auth, NULL, 0)->my_id)
 		return ISAKMP_N_BAD_PROPOSAL_SYNTAX;
+	if (enc_is_aead && !s->ipsec.is_aead)
+		return ISAKMP_N_BAD_PROPOSAL_SYNTAX;
+	}
 
 	for (rp = rp->next; rp; rp = rp->next)
 		switch (rp->type) {
@@ -3061,9 +3190,14 @@ static int do_rekey(struct sa_block *s, struct isakmp_packet *r)
 		nonce_i->u.nonce.data, nonce_i->u.nonce.length, nonce_r, sizeof(nonce_r));
 
 	s->ipsec.rx.key_cry = s->ipsec.rx.key;
-	s->ipsec.rx.key_md  = s->ipsec.rx.key + s->ipsec.key_len;
+	s->ipsec.rx.key_md  = s->ipsec.rx.key + s->ipsec.keymat_cry_len;
 	s->ipsec.tx.key_cry = s->ipsec.tx.key;
-	s->ipsec.tx.key_md  = s->ipsec.tx.key + s->ipsec.key_len;
+	s->ipsec.tx.key_md  = s->ipsec.tx.key + s->ipsec.keymat_cry_len;
+
+	if (s->ipsec.is_aead) {
+		memcpy(s->ipsec.rx.salt, s->ipsec.rx.key + s->ipsec.key_len, s->ipsec.aead_salt_len);
+		memcpy(s->ipsec.tx.salt, s->ipsec.tx.key + s->ipsec.key_len, s->ipsec.aead_salt_len);
+	}
 
 	nonce_i_copy_len = nonce_i->u.nonce.length;
 	nonce_i_copy = xallocc(nonce_i_copy_len);

@@ -48,6 +48,7 @@ struct ike_sa {
 	unsigned char *buf;
 	unsigned int bufsize, bufpayload, var_header_size;
 	int buflen;
+	uint8_t salt[4];
 };
 
 struct encap_method; /* private to tunip.c */
@@ -112,8 +113,12 @@ struct sa_block {
 	struct {
 		int do_pfs;
 		int cry_algo, md_algo;
-		size_t key_len, md_len;
+		size_t key_len, md_len, keymat_cry_len;
 		size_t blk_len, iv_len;
+		size_t aead_tag_len;
+		size_t aead_salt_len;
+		int cry_mode;
+		int is_aead;
 		uint16_t encap_mode;
 		uint16_t peer_udpencap_port;
 		enum natt_active_mode_enum natt_active_mode;
