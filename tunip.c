@@ -84,6 +84,9 @@
 #endif
 
 #include <gcrypt.h>
+#ifdef OPENSSL_GPL_VIOLATION
+#include <openssl/evp.h>
+#endif
 #include "sysdep.h"
 #include "config.h"
 #include "vpnc.h"
@@ -96,6 +99,44 @@
 
 #ifndef FD_COPY
 #define FD_COPY(f, t)	((void)memcpy((t), (f), sizeof(*(f))))
+#endif
+
+#ifdef OPENSSL_GPL_VIOLATION
+static const EVP_CIPHER *ossl_aead_cipher(int cry_algo)
+{
+	switch (cry_algo) {
+	case GCRY_CIPHER_AES128: return EVP_aes_128_gcm();
+	case GCRY_CIPHER_AES192: return EVP_aes_192_gcm();
+	case GCRY_CIPHER_AES256: return EVP_aes_256_gcm();
+	default: return NULL;
+	}
+}
+
+EVP_CIPHER_CTX *ossl_aead_ctx_new(int cry_algo, const uint8_t *key, size_t key_len)
+{
+	EVP_CIPHER_CTX *ctx;
+	const EVP_CIPHER *cipher = ossl_aead_cipher(cry_algo);
+
+	if (!cipher)
+		return NULL;
+	ctx = EVP_CIPHER_CTX_new();
+	if (!ctx)
+		return NULL;
+	if (!EVP_CipherInit_ex(ctx, cipher, NULL, NULL, NULL, -1)) {
+		EVP_CIPHER_CTX_free(ctx);
+		return NULL;
+	}
+	/* Set IV length to 12 bytes (4 salt + 8 explicit IV) */
+	if (!EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_IVLEN, 12, NULL)) {
+		EVP_CIPHER_CTX_free(ctx);
+		return NULL;
+	}
+	if (!EVP_CipherInit_ex(ctx, NULL, NULL, key, NULL, -1)) {
+		EVP_CIPHER_CTX_free(ctx);
+		return NULL;
+	}
+	return ctx;
+}
 #endif
 
 /* A real ESP header (RFC 2406) */
@@ -329,17 +370,29 @@ static int esp_aead_encrypt(struct sa_block *s, esp_encap_header_t *eh,
 	const unsigned char *iv, unsigned char *cleartext, unsigned int cleartextlen,
 	unsigned char *tag)
 {
-#if defined(GCRYPT_VERSION_NUMBER) && (GCRYPT_VERSION_NUMBER >= 0x010600)
+#ifdef OPENSSL_GPL_VIOLATION
 	unsigned char nonce[12];
+	int outlen = 0;
 
 	memcpy(nonce, s->ipsec.tx.salt, s->ipsec.aead_salt_len);
 	memcpy(nonce + s->ipsec.aead_salt_len, iv, s->ipsec.iv_len);
 
-	gcry_cipher_reset(s->ipsec.tx.cry_ctx);
-	gcry_cipher_setiv(s->ipsec.tx.cry_ctx, nonce, sizeof(nonce));
-	gcry_cipher_authenticate(s->ipsec.tx.cry_ctx, eh, sizeof(*eh));
-	gcry_cipher_encrypt(s->ipsec.tx.cry_ctx, cleartext, cleartextlen, NULL, 0);
-	gcry_cipher_gettag(s->ipsec.tx.cry_ctx, tag, s->ipsec.aead_tag_len);
+	if (!EVP_EncryptInit_ex(s->ipsec.tx.ossl_aead_ctx, NULL, NULL, NULL, nonce))
+		return -1;
+	/* AAD: ESP header */
+	if (!EVP_EncryptUpdate(s->ipsec.tx.ossl_aead_ctx, NULL, &outlen,
+			(const unsigned char *)eh, sizeof(*eh)))
+		return -1;
+	/* Encrypt in-place */
+	if (!EVP_EncryptUpdate(s->ipsec.tx.ossl_aead_ctx, cleartext, &outlen,
+			cleartext, cleartextlen))
+		return -1;
+	if (!EVP_EncryptFinal_ex(s->ipsec.tx.ossl_aead_ctx, cleartext + outlen, &outlen))
+		return -1;
+	/* Get the tag */
+	if (!EVP_CIPHER_CTX_ctrl(s->ipsec.tx.ossl_aead_ctx, EVP_CTRL_AEAD_GET_TAG,
+			s->ipsec.aead_tag_len, tag))
+		return -1;
 	return 0;
 #else
 	(void)s;
@@ -356,17 +409,31 @@ static int esp_aead_decrypt(struct sa_block *s, esp_encap_header_t *eh,
 	const unsigned char *iv, unsigned char *ciphertext, unsigned int ciphertextlen,
 	const unsigned char *tag)
 {
-#if defined(GCRYPT_VERSION_NUMBER) && (GCRYPT_VERSION_NUMBER >= 0x010600)
+#ifdef OPENSSL_GPL_VIOLATION
 	unsigned char nonce[12];
+	int outlen = 0;
 
 	memcpy(nonce, s->ipsec.rx.salt, s->ipsec.aead_salt_len);
 	memcpy(nonce + s->ipsec.aead_salt_len, iv, s->ipsec.iv_len);
 
-	gcry_cipher_reset(s->ipsec.rx.cry_ctx);
-	gcry_cipher_setiv(s->ipsec.rx.cry_ctx, nonce, sizeof(nonce));
-	gcry_cipher_authenticate(s->ipsec.rx.cry_ctx, eh, sizeof(*eh));
-	gcry_cipher_decrypt(s->ipsec.rx.cry_ctx, ciphertext, ciphertextlen, NULL, 0);
-	return gcry_cipher_checktag(s->ipsec.rx.cry_ctx, tag, s->ipsec.aead_tag_len);
+	if (!EVP_DecryptInit_ex(s->ipsec.rx.ossl_aead_ctx, NULL, NULL, NULL, nonce))
+		return -1;
+	/* AAD: ESP header */
+	if (!EVP_DecryptUpdate(s->ipsec.rx.ossl_aead_ctx, NULL, &outlen,
+			(const unsigned char *)eh, sizeof(*eh)))
+		return -1;
+	/* Decrypt in-place */
+	if (!EVP_DecryptUpdate(s->ipsec.rx.ossl_aead_ctx, ciphertext, &outlen,
+			ciphertext, ciphertextlen))
+		return -1;
+	/* Set expected tag before final */
+	if (!EVP_CIPHER_CTX_ctrl(s->ipsec.rx.ossl_aead_ctx, EVP_CTRL_AEAD_SET_TAG,
+			s->ipsec.aead_tag_len, (void *)tag))
+		return -1;
+	/* EVP_DecryptFinal_ex returns 0 on tag mismatch */
+	if (!EVP_DecryptFinal_ex(s->ipsec.rx.ossl_aead_ctx, ciphertext + outlen, &outlen))
+		return -1;
+	return 0;
 #else
 	(void)s;
 	(void)eh;
@@ -1105,8 +1172,20 @@ void vpnc_doit(struct sa_block *s)
 		memcpy(s->ipsec.rx.salt, s->ipsec.rx.key + s->ipsec.key_len, s->ipsec.aead_salt_len);
 
 	if (s->ipsec.cry_algo) {
-		gcry_cipher_open(&s->ipsec.rx.cry_ctx, s->ipsec.cry_algo, s->ipsec.cry_mode, 0);
-		gcry_cipher_setkey(s->ipsec.rx.cry_ctx, s->ipsec.rx.key_cry, s->ipsec.key_len);
+		if (s->ipsec.is_aead) {
+#ifdef OPENSSL_GPL_VIOLATION
+			s->ipsec.rx.ossl_aead_ctx = ossl_aead_ctx_new(s->ipsec.cry_algo,
+				s->ipsec.rx.key_cry, s->ipsec.key_len);
+			if (!s->ipsec.rx.ossl_aead_ctx)
+				error(1, 0, "Failed to create OpenSSL AES-GCM context (rx)");
+			s->ipsec.rx.cry_ctx = NULL;
+#else
+			error(1, 0, "AES-GCM requires OpenSSL support (compile with OPENSSL_GPL_VIOLATION=yes)");
+#endif
+		} else {
+			gcry_cipher_open(&s->ipsec.rx.cry_ctx, s->ipsec.cry_algo, s->ipsec.cry_mode, 0);
+			gcry_cipher_setkey(s->ipsec.rx.cry_ctx, s->ipsec.rx.key_cry, s->ipsec.key_len);
+		}
 	} else {
 		s->ipsec.rx.cry_ctx = NULL;
 	}
@@ -1124,8 +1203,20 @@ void vpnc_doit(struct sa_block *s)
 		memcpy(s->ipsec.tx.salt, s->ipsec.tx.key + s->ipsec.key_len, s->ipsec.aead_salt_len);
 
 	if (s->ipsec.cry_algo) {
-		gcry_cipher_open(&s->ipsec.tx.cry_ctx, s->ipsec.cry_algo, s->ipsec.cry_mode, 0);
-		gcry_cipher_setkey(s->ipsec.tx.cry_ctx, s->ipsec.tx.key_cry, s->ipsec.key_len);
+		if (s->ipsec.is_aead) {
+#ifdef OPENSSL_GPL_VIOLATION
+			s->ipsec.tx.ossl_aead_ctx = ossl_aead_ctx_new(s->ipsec.cry_algo,
+				s->ipsec.tx.key_cry, s->ipsec.key_len);
+			if (!s->ipsec.tx.ossl_aead_ctx)
+				error(1, 0, "Failed to create OpenSSL AES-GCM context (tx)");
+			s->ipsec.tx.cry_ctx = NULL;
+#else
+			error(1, 0, "AES-GCM requires OpenSSL support (compile with OPENSSL_GPL_VIOLATION=yes)");
+#endif
+		} else {
+			gcry_cipher_open(&s->ipsec.tx.cry_ctx, s->ipsec.cry_algo, s->ipsec.cry_mode, 0);
+			gcry_cipher_setkey(s->ipsec.tx.cry_ctx, s->ipsec.tx.key_cry, s->ipsec.key_len);
+		}
 	} else {
 		s->ipsec.tx.cry_ctx = NULL;
 	}

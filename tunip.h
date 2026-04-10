@@ -26,6 +26,10 @@
 #include <time.h>
 #include <net/if.h>
 
+#ifdef OPENSSL_GPL_VIOLATION
+#include <openssl/evp.h>
+#endif
+
 struct lifetime {
 	time_t   start;
 	uint32_t seconds;
@@ -41,6 +45,9 @@ struct ike_sa {
 	uint8_t *key;
 	uint8_t *key_cry;
 	gcry_cipher_hd_t cry_ctx;
+#ifdef OPENSSL_GPL_VIOLATION
+	EVP_CIPHER_CTX *ossl_aead_ctx;
+#endif
 	uint8_t *key_md;
 	gcry_md_hd_t md_ctx;
 
@@ -131,5 +138,9 @@ struct sa_block {
 
 extern int volatile do_kill;
 extern void vpnc_doit(struct sa_block *s);
+
+#ifdef OPENSSL_GPL_VIOLATION
+extern EVP_CIPHER_CTX *ossl_aead_ctx_new(int cry_algo, const uint8_t *key, size_t key_len);
+#endif
 
 #endif

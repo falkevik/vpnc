@@ -312,6 +312,12 @@ static void cleanup(struct sa_block *s) {
 		gcry_cipher_close(s->ipsec.rx.cry_ctx);
 		s->ipsec.rx.cry_ctx = NULL;
 	}
+#ifdef OPENSSL_GPL_VIOLATION
+	if (s->ipsec.rx.ossl_aead_ctx) {
+		EVP_CIPHER_CTX_free(s->ipsec.rx.ossl_aead_ctx);
+		s->ipsec.rx.ossl_aead_ctx = NULL;
+	}
+#endif
 	if (s->ipsec.rx.md_ctx) {
 		gcry_md_close(s->ipsec.rx.md_ctx);
 		s->ipsec.rx.md_ctx = NULL;
@@ -320,6 +326,12 @@ static void cleanup(struct sa_block *s) {
 		gcry_cipher_close(s->ipsec.tx.cry_ctx);
 		s->ipsec.tx.cry_ctx = NULL;
 	}
+#ifdef OPENSSL_GPL_VIOLATION
+	if (s->ipsec.tx.ossl_aead_ctx) {
+		EVP_CIPHER_CTX_free(s->ipsec.tx.ossl_aead_ctx);
+		s->ipsec.tx.ossl_aead_ctx = NULL;
+	}
+#endif
 	if (s->ipsec.tx.md_ctx) {
 		gcry_md_close(s->ipsec.tx.md_ctx);
 		s->ipsec.tx.md_ctx = NULL;
@@ -924,13 +936,15 @@ static void ipsec_set_crypto_params(struct sa_block *s, int transform_id, int cr
 	s->ipsec.cry_algo = cry_algo;
 	s->ipsec.md_algo = md_algo;
 	s->ipsec.is_aead = ipsec_is_aead_transform(transform_id);
-#if defined(GCRYPT_VERSION_NUMBER) && (GCRYPT_VERSION_NUMBER >= 0x010600)
-	s->ipsec.cry_mode = s->ipsec.is_aead ? GCRY_CIPHER_MODE_GCM : GCRY_CIPHER_MODE_CBC;
+	if (s->ipsec.is_aead) {
+#ifdef OPENSSL_GPL_VIOLATION
+		s->ipsec.cry_mode = 0; /* AEAD handled by OpenSSL, not libgcrypt */
 #else
-	if (s->ipsec.is_aead)
-		error(1, 0, "AES-GCM requires libgcrypt with GCM mode support");
-	s->ipsec.cry_mode = GCRY_CIPHER_MODE_CBC;
+		error(1, 0, "AES-GCM requires OpenSSL support (compile with OPENSSL_GPL_VIOLATION=yes)");
 #endif
+	} else {
+		s->ipsec.cry_mode = GCRY_CIPHER_MODE_CBC;
+	}
 	s->ipsec.aead_salt_len = s->ipsec.is_aead ? 4 : 0;
 	s->ipsec.aead_tag_len = s->ipsec.is_aead ? 16 : 0;
 
@@ -2682,7 +2696,9 @@ static struct isakmp_payload *make_our_sa_ipsec(struct sa_block *s)
 	for (pass = 0; pass < 2; pass++) {
 		for (crypt = 0; supp_crypt[crypt].name != NULL; crypt++) {
 			int is_aead = ipsec_is_aead_transform(supp_crypt[crypt].ipsec_sa_id);
-
+			
+			// Skip non-AEAD algorithms in the first pass, and AEAD algorithms in the second pass.
+			// i.e. only offer AEAD algorithms
 			//if (!is_aead)
 			//	continue;
 
@@ -3209,8 +3225,22 @@ static int do_rekey(struct sa_block *s, struct isakmp_packet *r)
 	s->ipsec.life.rx = 0;
 
 	if (s->ipsec.cry_algo) {
-		gcry_cipher_setkey(s->ipsec.rx.cry_ctx, s->ipsec.rx.key_cry, s->ipsec.key_len);
-		gcry_cipher_setkey(s->ipsec.tx.cry_ctx, s->ipsec.tx.key_cry, s->ipsec.key_len);
+		if (s->ipsec.is_aead) {
+#ifdef OPENSSL_GPL_VIOLATION
+			/* Re-create OpenSSL AEAD contexts with new keys */
+			if (s->ipsec.rx.ossl_aead_ctx)
+				EVP_CIPHER_CTX_free(s->ipsec.rx.ossl_aead_ctx);
+			s->ipsec.rx.ossl_aead_ctx = ossl_aead_ctx_new(s->ipsec.cry_algo,
+				s->ipsec.rx.key_cry, s->ipsec.key_len);
+			if (s->ipsec.tx.ossl_aead_ctx)
+				EVP_CIPHER_CTX_free(s->ipsec.tx.ossl_aead_ctx);
+			s->ipsec.tx.ossl_aead_ctx = ossl_aead_ctx_new(s->ipsec.cry_algo,
+				s->ipsec.tx.key_cry, s->ipsec.key_len);
+#endif
+		} else {
+			gcry_cipher_setkey(s->ipsec.rx.cry_ctx, s->ipsec.rx.key_cry, s->ipsec.key_len);
+			gcry_cipher_setkey(s->ipsec.tx.cry_ctx, s->ipsec.tx.key_cry, s->ipsec.key_len);
+		}
 	}
 
 	/* use request as template and just exchange some values */
