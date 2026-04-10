@@ -1981,7 +1981,7 @@ static void do_phase1_am_packet2(struct sa_block *s, const char *shared_key)
 			gcry_md_close(hm);
 			hex_dump("skeyid_e", skeyid_e, s->ike.md_len, NULL);
 
-			memset((void *)dh_shared_secret, 0, sizeof(dh_shared_secret));
+			memset(dh_shared_secret, 0, dh_getlen(s->ike.dh_grp));
 			free(dh_shared_secret);
 
 			/* Determine the IKE encryption key.  */
@@ -2030,6 +2030,7 @@ static void do_phase1_am_packet2(struct sa_block *s, const char *shared_key)
 
 		gcry_md_close(skeyid_ctx);
 		crypto_ctx_free(cctx);
+		memset(dh_shared_secret, 0, dh_getlen(s->ike.dh_grp));
 		free(dh_shared_secret);
 
 		/* Determine presence of NAT */
@@ -3019,6 +3020,8 @@ static void do_phase2_qm(struct sa_block *s)
 			dh_shared_secret, dh_grp ? dh_getlen(dh_grp) : 0,
 			nonce_i, sizeof(nonce_i), nonce_r->u.nonce.data, nonce_r->u.nonce.length);
 
+		if (dh_shared_secret)
+			memset(dh_shared_secret, 0, dh_getlen(dh_grp));
 		if (dh_grp)
 			group_free(dh_grp);
 		free(dh_shared_secret);
