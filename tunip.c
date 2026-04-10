@@ -1129,19 +1129,22 @@ static void killit(int signum)
 
 static void write_pidfile(const char *pidfile)
 {
-	FILE *pf;
+	int fd;
+	char buf[32];
+	int len;
 
 	if (pidfile == NULL || pidfile[0] == '\0')
 		return;
 
-	pf = fopen(pidfile, "w");
-	if (pf == NULL) {
+	fd = open(pidfile, O_WRONLY | O_CREAT | O_EXCL, 0644);
+	if (fd < 0) {
 		logmsg(LOG_WARNING, "can't open pidfile %s for writing", pidfile);
 		return;
 	}
 
-	fprintf(pf, "%d\n", (int)getpid());
-	fclose(pf);
+	len = snprintf(buf, sizeof(buf), "%d\n", (int)getpid());
+	write(fd, buf, len);
+	close(fd);
 }
 
 void vpnc_doit(struct sa_block *s)
