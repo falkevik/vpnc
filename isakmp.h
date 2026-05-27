@@ -236,7 +236,8 @@ enum ike_group_enum {
 	IKE_GROUP_EC2N_409sect,
 	IKE_GROUP_EC2N_409K,
 	IKE_GROUP_EC2N_571sect,
-	IKE_GROUP_EC2N_571K
+	IKE_GROUP_EC2N_571K,
+	IKE_GROUP_MODP_2048 = 14
 };
 
 /* IKE group type IDs.  */

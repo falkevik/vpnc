@@ -229,6 +229,7 @@ const struct debug_strings ike_group_enum_array[] = {
 	{ IKE_GROUP_EC2N_409K,	" (IKE_GROUP_EC2N_409K)" },
 	{ IKE_GROUP_EC2N_571sect,	" (IKE_GROUP_EC2N_571sect)" },
 	{ IKE_GROUP_EC2N_571K,	" (IKE_GROUP_EC2N_571K)" },
+	{ IKE_GROUP_MODP_2048,	" (IKE_GROUP_MODP_2048)" },
 	{ 0,	(const char *) 0 }
 };
 

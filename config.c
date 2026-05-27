@@ -492,14 +492,14 @@ static const struct config_names_s {
 		CONFIG_IKE_DH, 1, 1,
 		"--dh",
 		"IKE DH Group",
-		"<dh1/dh2/dh5>",
+		"<dh1/dh2/dh5/dh14>",
 		"name of the IKE DH Group",
 		config_def_ike_dh
 	}, {
 		CONFIG_IPSEC_PFS, 1, 1,
 		"--pfs",
 		"Perfect Forward Secrecy",
-		"<nopfs/dh1/dh2/dh5/server>",
+		"<nopfs/dh1/dh2/dh5/dh14/server>",
 		"Diffie-Hellman group to use for PFS",
 		config_def_pfs
 	}, {
