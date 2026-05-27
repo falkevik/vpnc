@@ -15,8 +15,8 @@
    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 */
 
-#ifndef OPENSSL_GPL_VIOLATION
-#error "openssl support cannot be built without defining OPENSSL_GPL_VIOLATION"
+#ifndef USE_OPENSSL
+#error "openssl support cannot be built without defining USE_OPENSSL"
 #endif
 
 #ifndef __CRYPTO_OPENSSL_H__

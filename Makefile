@@ -39,20 +39,20 @@ DOCDIR=$(PREFIX)/share/doc/vpnc
 
 # Comment this in to obtain a binary with certificate support which is
 # GPL incompliant though.
-OPENSSL_GPL_VIOLATION=yes
+USE_OPENSSL=yes
 
 CRYPTO_LDADD = $(shell pkg-config --libs gnutls)
 CRYPTO_CFLAGS = $(shell pkg-config --cflags gnutls) -DCRYPTO_GNUTLS
 CRYPTO_SRCS = crypto-gnutls.c
 
-ifeq ($(OPENSSL_GPL_VIOLATION), yes)
+ifeq ($(USE_OPENSSL), yes)
 OPENSSL_PKG_CFLAGS := $(shell pkg-config --cflags openssl 2>/dev/null)
 OPENSSL_PKG_LIBS := $(shell pkg-config --libs openssl 2>/dev/null)
 OPENSSL_PREFIX ?= $(firstword $(foreach p,/opt/homebrew/opt/openssl@3 /usr/local/opt/openssl@3 /opt/homebrew/opt/openssl /usr/local/opt/openssl /opt/local,$(if $(wildcard $(p)/include/openssl/ssl.h),$(p),)))
 OPENSSL_FALLBACK_CFLAGS := $(if $(OPENSSL_PREFIX),-I$(OPENSSL_PREFIX)/include)
 OPENSSL_FALLBACK_LIBS := $(if $(OPENSSL_PREFIX),-L$(OPENSSL_PREFIX)/lib -lcrypto,-lcrypto)
 CRYPTO_LDADD = $(if $(OPENSSL_PKG_LIBS),$(OPENSSL_PKG_LIBS),$(OPENSSL_FALLBACK_LIBS))
-CRYPTO_CFLAGS = -DOPENSSL_GPL_VIOLATION -DCRYPTO_OPENSSL $(if $(OPENSSL_PKG_CFLAGS),$(OPENSSL_PKG_CFLAGS),$(OPENSSL_FALLBACK_CFLAGS))
+CRYPTO_CFLAGS = -DUSE_OPENSSL -DCRYPTO_OPENSSL $(if $(OPENSSL_PKG_CFLAGS),$(OPENSSL_PKG_CFLAGS),$(OPENSSL_FALLBACK_CFLAGS))
 CRYPTO_SRCS = crypto-openssl.c
 endif
 

@@ -799,12 +799,11 @@ static void print_version(void)
 		"You may redistribute copies of vpnc under the terms of the GNU General\n"
 		"Public License.  For more information about these matters, see the files\n"
 		"named COPYING.\n");
-#ifdef OPENSSL_GPL_VIOLATION
-	printf("Built with openssl certificate support. Be aware of the\n"
-		"license implications.\n");
-#else /* OPENSSL_GPL_VIOLATION */
+#ifdef USE_OPENSSL
+	printf("Built with openssl certificate support.\n");
+#else /* USE_OPENSSL */
 	printf("Built with certificate support.\n");
-#endif /* OPENSSL_GPL_VIOLATION */
+#endif /* USE_OPENSSL */
 	printf("\n");
 
 	printf("Supported DH-Groups:");

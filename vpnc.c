@@ -312,7 +312,7 @@ static void cleanup(struct sa_block *s) {
 		gcry_cipher_close(s->ipsec.rx.cry_ctx);
 		s->ipsec.rx.cry_ctx = NULL;
 	}
-#ifdef OPENSSL_GPL_VIOLATION
+#ifdef USE_OPENSSL
 	if (s->ipsec.rx.ossl_aead_ctx) {
 		EVP_CIPHER_CTX_free(s->ipsec.rx.ossl_aead_ctx);
 		s->ipsec.rx.ossl_aead_ctx = NULL;
@@ -326,7 +326,7 @@ static void cleanup(struct sa_block *s) {
 		gcry_cipher_close(s->ipsec.tx.cry_ctx);
 		s->ipsec.tx.cry_ctx = NULL;
 	}
-#ifdef OPENSSL_GPL_VIOLATION
+#ifdef USE_OPENSSL
 	if (s->ipsec.tx.ossl_aead_ctx) {
 		EVP_CIPHER_CTX_free(s->ipsec.tx.ossl_aead_ctx);
 		s->ipsec.tx.ossl_aead_ctx = NULL;
@@ -937,10 +937,10 @@ static void ipsec_set_crypto_params(struct sa_block *s, int transform_id, int cr
 	s->ipsec.md_algo = md_algo;
 	s->ipsec.is_aead = ipsec_is_aead_transform(transform_id);
 	if (s->ipsec.is_aead) {
-#ifdef OPENSSL_GPL_VIOLATION
+#ifdef USE_OPENSSL
 		s->ipsec.cry_mode = 0; /* AEAD handled by OpenSSL, not libgcrypt */
 #else
-		error(1, 0, "AES-GCM requires OpenSSL support (compile with OPENSSL_GPL_VIOLATION=yes)");
+		error(1, 0, "AES-GCM requires OpenSSL support (compile with USE_OPENSSL=yes)");
 #endif
 	} else {
 		s->ipsec.cry_mode = GCRY_CIPHER_MODE_CBC;
@@ -3229,7 +3229,7 @@ static int do_rekey(struct sa_block *s, struct isakmp_packet *r)
 
 	if (s->ipsec.cry_algo) {
 		if (s->ipsec.is_aead) {
-#ifdef OPENSSL_GPL_VIOLATION
+#ifdef USE_OPENSSL
 			/* Re-create OpenSSL AEAD contexts with new keys */
 			if (s->ipsec.rx.ossl_aead_ctx)
 				EVP_CIPHER_CTX_free(s->ipsec.rx.ossl_aead_ctx);

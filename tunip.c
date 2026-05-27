@@ -84,7 +84,7 @@
 #endif
 
 #include <gcrypt.h>
-#ifdef OPENSSL_GPL_VIOLATION
+#ifdef USE_OPENSSL
 #include <openssl/evp.h>
 #endif
 #include "sysdep.h"
@@ -101,7 +101,7 @@
 #define FD_COPY(f, t)	((void)memcpy((t), (f), sizeof(*(f))))
 #endif
 
-#ifdef OPENSSL_GPL_VIOLATION
+#ifdef USE_OPENSSL
 static const EVP_CIPHER *ossl_aead_cipher(int cry_algo)
 {
 	switch (cry_algo) {
@@ -370,7 +370,7 @@ static int esp_aead_encrypt(struct sa_block *s, esp_encap_header_t *eh,
 	const unsigned char *iv, unsigned char *cleartext, unsigned int cleartextlen,
 	unsigned char *tag)
 {
-#ifdef OPENSSL_GPL_VIOLATION
+#ifdef USE_OPENSSL
 	unsigned char nonce[12];
 	int outlen = 0;
 
@@ -409,7 +409,7 @@ static int esp_aead_decrypt(struct sa_block *s, esp_encap_header_t *eh,
 	const unsigned char *iv, unsigned char *ciphertext, unsigned int ciphertextlen,
 	const unsigned char *tag)
 {
-#ifdef OPENSSL_GPL_VIOLATION
+#ifdef USE_OPENSSL
 	unsigned char nonce[12];
 	int outlen = 0;
 
@@ -1176,14 +1176,14 @@ void vpnc_doit(struct sa_block *s)
 
 	if (s->ipsec.cry_algo) {
 		if (s->ipsec.is_aead) {
-#ifdef OPENSSL_GPL_VIOLATION
+#ifdef USE_OPENSSL
 			s->ipsec.rx.ossl_aead_ctx = ossl_aead_ctx_new(s->ipsec.cry_algo,
 				s->ipsec.rx.key_cry, s->ipsec.key_len);
 			if (!s->ipsec.rx.ossl_aead_ctx)
 				error(1, 0, "Failed to create OpenSSL AES-GCM context (rx)");
 			s->ipsec.rx.cry_ctx = NULL;
 #else
-			error(1, 0, "AES-GCM requires OpenSSL support (compile with OPENSSL_GPL_VIOLATION=yes)");
+			error(1, 0, "AES-GCM requires OpenSSL support (compile with USE_OPENSSL=yes)");
 #endif
 		} else {
 			gcry_cipher_open(&s->ipsec.rx.cry_ctx, s->ipsec.cry_algo, s->ipsec.cry_mode, 0);
@@ -1207,14 +1207,14 @@ void vpnc_doit(struct sa_block *s)
 
 	if (s->ipsec.cry_algo) {
 		if (s->ipsec.is_aead) {
-#ifdef OPENSSL_GPL_VIOLATION
+#ifdef USE_OPENSSL
 			s->ipsec.tx.ossl_aead_ctx = ossl_aead_ctx_new(s->ipsec.cry_algo,
 				s->ipsec.tx.key_cry, s->ipsec.key_len);
 			if (!s->ipsec.tx.ossl_aead_ctx)
 				error(1, 0, "Failed to create OpenSSL AES-GCM context (tx)");
 			s->ipsec.tx.cry_ctx = NULL;
 #else
-			error(1, 0, "AES-GCM requires OpenSSL support (compile with OPENSSL_GPL_VIOLATION=yes)");
+			error(1, 0, "AES-GCM requires OpenSSL support (compile with USE_OPENSSL=yes)");
 #endif
 		} else {
 			gcry_cipher_open(&s->ipsec.tx.cry_ctx, s->ipsec.cry_algo, s->ipsec.cry_mode, 0);
