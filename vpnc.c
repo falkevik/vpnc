@@ -312,7 +312,28 @@ static int make_socket(struct sa_block *s, uint16_t src_port, uint16_t dst_port)
 	return sock;
 }
 
+static void wipe_free(uint8_t **p, size_t len)
+{
+	if (*p) {
+		memset(*p, 0, len);
+		free(*p);
+		*p = NULL;
+	}
+}
+
+static void wipe_config_secret(int idx)
+{
+	/* secrets are always heap strings (config file, prompt, deobfuscation),
+	 * never argv, so it is safe to overwrite them */
+	if (config[idx]) {
+		memset((char *)config[idx], 0, strlen(config[idx]));
+		config[idx] = NULL;
+	}
+}
+
 static void cleanup(struct sa_block *s) {
+	wipe_config_secret(CONFIG_IPSEC_SECRET);
+	wipe_config_secret(CONFIG_XAUTH_PASSWORD);
 	if (s->ike_fd != 0) {
 		close(s->ike_fd);
 		s->ike_fd = 0;
@@ -325,34 +346,15 @@ static void cleanup(struct sa_block *s) {
 		free(s->ike.resend_hash);
 		s->ike.resend_hash = NULL;
 	}
-	if (s->ike.skeyid_d) {
-		free(s->ike.skeyid_d);
-		s->ike.skeyid_d = NULL;
-	}
-	if (s->ike.skeyid_a) {
-		free(s->ike.skeyid_a);
-		s->ike.skeyid_a = NULL;
-	}
-	if (s->ike.initial_iv) {
-		free(s->ike.initial_iv);
-		s->ike.initial_iv = NULL;
-	}
-	if (s->ike.current_iv) {
-		free(s->ike.current_iv);
-		s->ike.current_iv = NULL;
-	}
-	if (s->ike.key) {
-		free(s->ike.key);
-		s->ike.key = NULL;
-	}
-	if (s->ipsec.rx.key) {
-		free(s->ipsec.rx.key);
-		s->ipsec.rx.key = NULL;
-	}
-	if (s->ipsec.tx.key) {
-		free(s->ipsec.tx.key);
-		s->ipsec.tx.key = NULL;
-	}
+	wipe_free(&s->ike.skeyid_d, s->ike.md_len);
+	wipe_free(&s->ike.skeyid_a, s->ike.md_len);
+	wipe_free(&s->ike.initial_iv, s->ike.ivlen);
+	wipe_free(&s->ike.current_iv, s->ike.ivlen);
+	wipe_free(&s->ike.key, s->ike.keylen);
+	wipe_free(&s->ipsec.rx.key, s->ipsec.md_len + s->ipsec.keymat_cry_len);
+	wipe_free(&s->ipsec.tx.key, s->ipsec.md_len + s->ipsec.keymat_cry_len);
+	memset(s->ipsec.rx.salt, 0, sizeof(s->ipsec.rx.salt));
+	memset(s->ipsec.tx.salt, 0, sizeof(s->ipsec.tx.salt));
 	ipsec_free_contexts(s);
 }
 
