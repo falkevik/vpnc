@@ -3201,6 +3201,12 @@ static int do_rekey(struct sa_block *s, struct isakmp_packet *r)
 
 	if ((dh_grp && ke == NULL) || nonce_i == NULL)
 		return ISAKMP_N_BAD_PROPOSAL_SYNTAX;
+	if (dh_grp && ke->u.ke.length != (size_t)dh_getlen(dh_grp))
+		return ISAKMP_N_INVALID_KEY_INFORMATION;
+	if (!dh_grp && ke != NULL)
+		return ISAKMP_N_INVALID_PAYLOAD_TYPE;
+	if (nonce_i->u.nonce.length == 0)
+		return ISAKMP_N_INVALID_HASH_INFORMATION;
 
 	DEBUG(3, printf("everything fine so far...\n"));
 	gcry_create_nonce((uint8_t *) nonce_r, sizeof(nonce_r));
@@ -3292,6 +3298,12 @@ static int do_rekey(struct sa_block *s, struct isakmp_packet *r)
 		r->message_id, 0, nonce_i_copy, nonce_i_copy_len, 0,0);
 	unpack_verify_phase2(s, r_packet, r_length, &r, NULL, 0);
 	free(nonce_i_copy);
+	if (dh_shared_secret)
+		memset(dh_shared_secret, 0, dh_getlen(dh_grp));
+	free(dh_shared_secret);
+	if (dh_grp)
+		group_free(dh_grp);
+	free(dh_public);
 	/* don't care about answer ... */
 
 	return 0;
