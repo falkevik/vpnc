@@ -37,6 +37,7 @@
 #include <poll.h>
 #include <sys/ioctl.h>
 #include <sys/utsname.h>
+#include <syslog.h>
 
 #include <gcrypt.h>
 
@@ -2246,6 +2247,11 @@ static int do_phase2_notice_check(struct sa_block *s, struct isakmp_packet **r_p
 					if (r->payload->next->u.n.data_length != 4)
 						error(1, 0, "malformed loadbalance target");
 					s->dst = *(struct in_addr *)r->payload->next->u.n.data;
+					if (s->dst.s_addr == INADDR_ANY || s->dst.s_addr == INADDR_BROADCAST
+						|| IN_MULTICAST(ntohl(s->dst.s_addr))
+						|| (ntohl(s->dst.s_addr) >> 24) == IN_LOOPBACKNET)
+						error(1, 0, "rejecting bogus loadbalance target %s", inet_ntoa(s->dst));
+					logmsg(LOG_NOTICE, "gateway redirected us to %s (load balancing)", inet_ntoa(s->dst));
 					s->ike.dst_port = ISAKMP_PORT;
 					s->ipsec.encap_mode = IPSEC_ENCAP_TUNNEL;
 					s->ipsec.natt_active_mode = NATT_ACTIVE_NONE;
