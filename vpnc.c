@@ -191,6 +191,15 @@ static __inline__ int min(int a, int b)
 	return (a < b) ? a : b;
 }
 
+/* Key material is only ever dumped at debug level 99, like passwords. */
+static void hex_dump_secret(const char *str, const void *data, ssize_t len)
+{
+	if (opt_debug >= 99)
+		hex_dump(str, data, len, NULL);
+	else
+		DEBUG(3, printf("   %s: (not dumping key material, use --debug 99)\n", str));
+}
+
 /*
  * Values received from the gateway end up in the environment of the
  * vpnc-script, which is a shell script running as root. Restrict them to a
@@ -1818,9 +1827,9 @@ static void do_phase1_am_packet2(struct sa_block *s, const char *shared_key)
 
 		/* Determine the shared secret.  */
 		dh_shared_secret = xallocc(dh_getlen(s->ike.dh_grp));
-		hex_dump("dh_shared_secret", dh_shared_secret, dh_getlen(s->ike.dh_grp), NULL);
 		if (dh_create_shared(s->ike.dh_grp, dh_shared_secret, ke->u.ke.data) != 0)
 			error(1, 0, "response was invalid: peer sent a degenerate Diffie-Hellman public value");
+		hex_dump_secret("dh_shared_secret", dh_shared_secret, dh_getlen(s->ike.dh_grp));
 		/* Generate SKEYID.  */
 		{
 			gcry_md_open(&skeyid_ctx, s->ike.md_algo, GCRY_MD_FLAG_HMAC);
@@ -1871,7 +1880,7 @@ static void do_phase1_am_packet2(struct sa_block *s, const char *shared_key)
 			} else
 				error(1, 0, "SKEYID could not be computed: %s", "the selected authentication method is not supported");
 			skeyid = gcry_md_read(skeyid_ctx, 0);
-			hex_dump("skeyid", skeyid, s->ike.md_len, NULL);
+			hex_dump_secret("skeyid", skeyid, s->ike.md_len);
 		}
 
 		/* Verify the hash.  */
@@ -1969,7 +1978,7 @@ static void do_phase1_am_packet2(struct sa_block *s, const char *shared_key)
 			s->ike.psk_hash = xallocc(s->ike.md_len);
 			memcpy(s->ike.psk_hash, gcry_md_read(hm, 0), s->ike.md_len);
 			gcry_md_close(hm);
-			hex_dump("psk_hash", s->ike.psk_hash, s->ike.md_len, NULL);
+			hex_dump_secret("psk_hash", s->ike.psk_hash, s->ike.md_len);
 			/* End PRESHARED_KEY_HASH */
 
 			free(s->ike.sa_f);
@@ -1989,9 +1998,9 @@ static void do_phase1_am_packet2(struct sa_block *s, const char *shared_key)
 
 			/* Determine the shared secret.  */
 			dh_shared_secret = xallocc(dh_getlen(s->ike.dh_grp));
-			hex_dump("dh_shared_secret", dh_shared_secret, dh_getlen(s->ike.dh_grp), NULL);
 			if (dh_create_shared(s->ike.dh_grp, dh_shared_secret, ke->u.ke.data) != 0)
 				error(1, 0, "response was invalid: peer sent a degenerate Diffie-Hellman public value");
+			hex_dump_secret("dh_shared_secret", dh_shared_secret, dh_getlen(s->ike.dh_grp));
 
 			gcry_md_open(&hm, s->ike.md_algo, GCRY_MD_FLAG_HMAC);
 			gcry_md_setkey(hm, skeyid, s->ike.md_len);
@@ -2004,7 +2013,7 @@ static void do_phase1_am_packet2(struct sa_block *s, const char *shared_key)
 			s->ike.skeyid_d = xallocc(s->ike.md_len);
 			memcpy(s->ike.skeyid_d, gcry_md_read(hm, 0), s->ike.md_len);
 			gcry_md_close(hm);
-			hex_dump("skeyid_d", s->ike.skeyid_d, s->ike.md_len, NULL);
+			hex_dump_secret("skeyid_d", s->ike.skeyid_d, s->ike.md_len);
 
 			gcry_md_open(&hm, s->ike.md_algo, GCRY_MD_FLAG_HMAC);
 			gcry_md_setkey(hm, skeyid, s->ike.md_len);
@@ -2018,7 +2027,7 @@ static void do_phase1_am_packet2(struct sa_block *s, const char *shared_key)
 			s->ike.skeyid_a = xallocc(s->ike.md_len);
 			memcpy(s->ike.skeyid_a, gcry_md_read(hm, 0), s->ike.md_len);
 			gcry_md_close(hm);
-			hex_dump("skeyid_a", s->ike.skeyid_a, s->ike.md_len, NULL);
+			hex_dump_secret("skeyid_a", s->ike.skeyid_a, s->ike.md_len);
 
 			gcry_md_open(&hm, s->ike.md_algo, GCRY_MD_FLAG_HMAC);
 			gcry_md_setkey(hm, skeyid, s->ike.md_len);
@@ -2031,7 +2040,7 @@ static void do_phase1_am_packet2(struct sa_block *s, const char *shared_key)
 			skeyid_e = xallocc(s->ike.md_len);
 			memcpy(skeyid_e, gcry_md_read(hm, 0), s->ike.md_len);
 			gcry_md_close(hm);
-			hex_dump("skeyid_e", skeyid_e, s->ike.md_len, NULL);
+			hex_dump_secret("skeyid_e", skeyid_e, s->ike.md_len);
 
 			memset(dh_shared_secret, 0, dh_getlen(s->ike.dh_grp));
 			free(dh_shared_secret);
@@ -2057,7 +2066,7 @@ static void do_phase1_am_packet2(struct sa_block *s, const char *shared_key)
 			} else { /* keylen <= md_len */
 				memcpy(s->ike.key, skeyid_e, s->ike.keylen);
 			}
-			hex_dump("enc-key", s->ike.key, s->ike.keylen, NULL);
+			hex_dump_secret("enc-key", s->ike.key, s->ike.keylen);
 
 			memset(skeyid_e, 0, s->ike.md_len);
 			free(skeyid_e);
@@ -3063,10 +3072,10 @@ static void do_phase2_qm(struct sa_block *s)
 		if (dh_grp) {
 			/* Determine the shared secret.  */
 			dh_shared_secret = xallocc(dh_getlen(dh_grp));
-			hex_dump("dh_shared_secret", dh_shared_secret, dh_getlen(dh_grp), NULL);
 			if (dh_create_shared(dh_grp, dh_shared_secret, ke->u.ke.data) != 0)
 				phase2_fatal(s, "quick mode response rejected: degenerate DH public value: %s(%d)",
 					ISAKMP_N_INVALID_KEY_INFORMATION);
+			hex_dump_secret("dh_shared_secret", dh_shared_secret, dh_getlen(dh_grp));
 		}
 
 		s->ipsec.rx.key = gen_keymat(s, ISAKMP_IPSEC_PROTO_IPSEC_ESP, s->ipsec.rx.spi,
@@ -3256,13 +3265,13 @@ static int do_rekey(struct sa_block *s, struct isakmp_packet *r)
 	if (dh_grp) {
 		/* Determine the shared secret.  */
 		dh_shared_secret = xallocc(dh_getlen(dh_grp));
-		hex_dump("dh_shared_secret", dh_shared_secret, dh_getlen(dh_grp), NULL);
 		if (dh_create_shared(dh_grp, dh_shared_secret, ke->u.ke.data) != 0) {
 			free(dh_shared_secret);
 			group_free(dh_grp);
 			free(dh_public);
 			return ISAKMP_N_INVALID_KEY_INFORMATION;
 		}
+		hex_dump_secret("dh_shared_secret", dh_shared_secret, dh_getlen(dh_grp));
 	}
 
 	free(s->ipsec.rx.key);
