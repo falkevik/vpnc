@@ -40,7 +40,8 @@ struct lifetime {
 
 struct ike_sa {
 	uint32_t spi;
-	uint32_t seq_id; /* for replay protection (not implemented) */
+	uint32_t seq_id; /* tx: next sequence number to send; rx: highest seen */
+	uint64_t replay_win; /* rx: sliding window bitmap, bit 0 == seq_id */
 
 	uint8_t *key;
 	uint8_t *key_cry;

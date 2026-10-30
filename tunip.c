@@ -736,6 +736,39 @@ static int encap_esp_recv_peer(struct sa_block *s)
 	return 0;
 }
 
+/*
+ * Sliding window anti-replay check, 64 packets wide.
+ * Returns 0 if seq is new and records it, -1 if it is a replay or too old.
+ * rx->seq_id holds the highest sequence number accepted so far,
+ * rx->replay_win bit n is set if seq_id - n has been seen.
+ */
+static int esp_replay_check_update(struct ike_sa *rx, uint32_t seq)
+{
+	const uint32_t win = 64;
+	uint32_t diff;
+
+	if (seq == 0)
+		return -1; /* RFC 4303: zero is never valid */
+
+	if (seq > rx->seq_id) {
+		diff = seq - rx->seq_id;
+		if (diff >= win)
+			rx->replay_win = 1;
+		else
+			rx->replay_win = (rx->replay_win << diff) | 1;
+		rx->seq_id = seq;
+		return 0;
+	}
+
+	diff = rx->seq_id - seq;
+	if (diff >= win)
+		return -1; /* too old */
+	if (rx->replay_win & ((uint64_t)1 << diff))
+		return -1; /* already seen */
+	rx->replay_win |= (uint64_t)1 << diff;
+	return 0;
+}
+
 static void encap_esp_new(struct encap_method *encap)
 {
 	encap->recv = encap_rawip_recv;
@@ -903,6 +936,15 @@ static void process_socket(struct sa_block *s)
 	/* Check auth digest and/or decrypt */
 	if (s->ipsec.em->recv_peer(s) != 0)
 		return;
+
+	/* Anti-replay (RFC 4303 3.4.3): only accept after the packet has been
+	 * authenticated, so an attacker cannot poison the window. */
+	if (s->ipsec.md_algo || s->ipsec.is_aead) {
+		if (esp_replay_check_update(&s->ipsec.rx, ntohl(eh->seq_id)) != 0) {
+			logmsg(LOG_NOTICE, "replayed or stale ESP packet seq %u dropped", ntohl(eh->seq_id));
+			return;
+		}
+	}
 
 	if (encap_any_decap(s) == 0) {
 		logmsg(LOG_DEBUG, "received update probe from peer");
@@ -1266,8 +1308,10 @@ void ipsec_setup_contexts(struct sa_block *s)
 		s->ipsec.tx.md_ctx = NULL;
 	}
 
+	/* fresh SA: reset sequence numbers, replay window and AEAD IV counter */
 	s->ipsec.tx.seq_id = 1;
 	s->ipsec.rx.seq_id = 0;
+	s->ipsec.rx.replay_win = 0;
 	s->ipsec.life.start = time(NULL);
 	s->ipsec.life.rx = 0;
 	s->ipsec.life.tx = 0;
