@@ -2375,10 +2375,8 @@ static int do_phase2_xauth(struct sa_block *s)
 						printf("%c%c\n", ap->u.attr_16 >> 8, ap->u.attr_16);
 					else
 						printf("%.*s%s", ap->u.lots.length, ap->u.lots.data,
-							((ap->u.lots.data
-									&& ap->u.lots.data[ap->u.
-										lots.length - 1] !=
-									'\n')
+							((ap->u.lots.data && ap->u.lots.length > 0
+									&& ap->u.lots.data[ap->u.lots.length - 1] != '\n')
 								? "\n" : ""));
 				}
 				break;
