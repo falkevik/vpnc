@@ -353,34 +353,7 @@ static void cleanup(struct sa_block *s) {
 		free(s->ipsec.tx.key);
 		s->ipsec.tx.key = NULL;
 	}
-	if (s->ipsec.rx.cry_ctx) {
-		gcry_cipher_close(s->ipsec.rx.cry_ctx);
-		s->ipsec.rx.cry_ctx = NULL;
-	}
-#ifdef USE_OPENSSL
-	if (s->ipsec.rx.ossl_aead_ctx) {
-		EVP_CIPHER_CTX_free(s->ipsec.rx.ossl_aead_ctx);
-		s->ipsec.rx.ossl_aead_ctx = NULL;
-	}
-#endif
-	if (s->ipsec.rx.md_ctx) {
-		gcry_md_close(s->ipsec.rx.md_ctx);
-		s->ipsec.rx.md_ctx = NULL;
-	}
-	if (s->ipsec.tx.cry_ctx) {
-		gcry_cipher_close(s->ipsec.tx.cry_ctx);
-		s->ipsec.tx.cry_ctx = NULL;
-	}
-#ifdef USE_OPENSSL
-	if (s->ipsec.tx.ossl_aead_ctx) {
-		EVP_CIPHER_CTX_free(s->ipsec.tx.ossl_aead_ctx);
-		s->ipsec.tx.ossl_aead_ctx = NULL;
-	}
-#endif
-	if (s->ipsec.tx.md_ctx) {
-		gcry_md_close(s->ipsec.tx.md_ctx);
-		s->ipsec.tx.md_ctx = NULL;
-	}
+	ipsec_free_contexts(s);
 }
 
 static void init_sockaddr(struct in_addr *dst, const char *hostname)
@@ -2814,7 +2787,7 @@ static struct isakmp_payload *make_our_sa_ipsec(struct sa_block *s)
 	return r;
 }
 
-static void do_phase2_qm(struct sa_block *s)
+void do_phase2_qm(struct sa_block *s)
 {
 	struct isakmp_payload *rp, *us, *ke = NULL, *them, *nonce_r = NULL;
 	struct isakmp_packet *r;
@@ -3078,6 +3051,8 @@ static void do_phase2_qm(struct sa_block *s)
 			hex_dump_secret("dh_shared_secret", dh_shared_secret, dh_getlen(dh_grp));
 		}
 
+		free(s->ipsec.rx.key);
+		free(s->ipsec.tx.key);
 		s->ipsec.rx.key = gen_keymat(s, ISAKMP_IPSEC_PROTO_IPSEC_ESP, s->ipsec.rx.spi,
 			dh_shared_secret, dh_grp ? dh_getlen(dh_grp) : 0,
 			nonce_i, sizeof(nonce_i), nonce_r->u.nonce.data, nonce_r->u.nonce.length);
@@ -3121,6 +3096,12 @@ static void do_phase2_qm(struct sa_block *s)
 		}
 
 		s->ipsec.rx.seq_id = s->ipsec.tx.seq_id = 1;
+
+		/* If the data path is already running (rekey triggered from the
+		 * main loop or by a delete), rebuild the cipher contexts now.
+		 * On first connect vpnc_doit() will do it. */
+		if (s->ipsec.em != NULL)
+			ipsec_setup_contexts(s);
 	}
 	free(dh_public);
 }
@@ -3285,43 +3266,12 @@ static int do_rekey(struct sa_block *s, struct isakmp_packet *r)
 		dh_shared_secret, dh_grp ? dh_getlen(dh_grp) : 0,
 		nonce_i->u.nonce.data, nonce_i->u.nonce.length, nonce_r, sizeof(nonce_r));
 
-	s->ipsec.rx.key_cry = s->ipsec.rx.key;
-	s->ipsec.rx.key_md  = s->ipsec.rx.key + s->ipsec.keymat_cry_len;
-	s->ipsec.tx.key_cry = s->ipsec.tx.key;
-	s->ipsec.tx.key_md  = s->ipsec.tx.key + s->ipsec.keymat_cry_len;
-
-	if (s->ipsec.is_aead) {
-		memcpy(s->ipsec.rx.salt, s->ipsec.rx.key + s->ipsec.key_len, s->ipsec.aead_salt_len);
-		memcpy(s->ipsec.tx.salt, s->ipsec.tx.key + s->ipsec.key_len, s->ipsec.aead_salt_len);
-	}
-
 	nonce_i_copy_len = nonce_i->u.nonce.length;
 	nonce_i_copy = xallocc(nonce_i_copy_len);
 	memcpy(nonce_i_copy, nonce_i->u.nonce.data, nonce_i_copy_len);
 
-	s->ipsec.rx.seq_id = s->ipsec.tx.seq_id = 1;
-	s->ipsec.life.start = time(NULL);
-	s->ipsec.life.tx = 0;
-	s->ipsec.life.rx = 0;
-
-	if (s->ipsec.cry_algo) {
-		if (s->ipsec.is_aead) {
-#ifdef USE_OPENSSL
-			/* Re-create OpenSSL AEAD contexts with new keys */
-			if (s->ipsec.rx.ossl_aead_ctx)
-				EVP_CIPHER_CTX_free(s->ipsec.rx.ossl_aead_ctx);
-			s->ipsec.rx.ossl_aead_ctx = ossl_aead_ctx_new(s->ipsec.cry_algo,
-				s->ipsec.rx.key_cry, s->ipsec.key_len);
-			if (s->ipsec.tx.ossl_aead_ctx)
-				EVP_CIPHER_CTX_free(s->ipsec.tx.ossl_aead_ctx);
-			s->ipsec.tx.ossl_aead_ctx = ossl_aead_ctx_new(s->ipsec.cry_algo,
-				s->ipsec.tx.key_cry, s->ipsec.key_len);
-#endif
-		} else {
-			gcry_cipher_setkey(s->ipsec.rx.cry_ctx, s->ipsec.rx.key_cry, s->ipsec.key_len);
-			gcry_cipher_setkey(s->ipsec.tx.cry_ctx, s->ipsec.tx.key_cry, s->ipsec.key_len);
-		}
-	}
+	/* rebuild cipher/MAC contexts, salts, counters and replay window */
+	ipsec_setup_contexts(s);
 
 	/* use request as template and just exchange some values */
 	/* this overwrites data in nonce_i, ke! */

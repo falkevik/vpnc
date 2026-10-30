@@ -1150,26 +1150,47 @@ static void write_pidfile(const char *pidfile)
 	close(fd);
 }
 
-void vpnc_doit(struct sa_block *s)
+/*
+ * Release the cipher / MAC contexts of the current IPsec SA (both directions).
+ */
+void ipsec_free_contexts(struct sa_block *s)
 {
-	struct sigaction act;
-	struct encap_method meth;
-
-	const char *pidfile = config[CONFIG_PID_FILE];
-
-	switch (s->ipsec.encap_mode) {
-		case IPSEC_ENCAP_TUNNEL:
-			encap_esp_new(&meth);
-			gcry_create_nonce(&s->ipsec.ip_id, sizeof(uint16_t));
-			break;
-		case IPSEC_ENCAP_UDP_TUNNEL:
-		case IPSEC_ENCAP_UDP_TUNNEL_OLD:
-			encap_udp_new(&meth);
-			break;
-		default:
-			abort();
+	if (s->ipsec.rx.cry_ctx) {
+		gcry_cipher_close(s->ipsec.rx.cry_ctx);
+		s->ipsec.rx.cry_ctx = NULL;
 	}
-	s->ipsec.em = &meth;
+	if (s->ipsec.tx.cry_ctx) {
+		gcry_cipher_close(s->ipsec.tx.cry_ctx);
+		s->ipsec.tx.cry_ctx = NULL;
+	}
+#ifdef USE_OPENSSL
+	if (s->ipsec.rx.ossl_aead_ctx) {
+		EVP_CIPHER_CTX_free(s->ipsec.rx.ossl_aead_ctx);
+		s->ipsec.rx.ossl_aead_ctx = NULL;
+	}
+	if (s->ipsec.tx.ossl_aead_ctx) {
+		EVP_CIPHER_CTX_free(s->ipsec.tx.ossl_aead_ctx);
+		s->ipsec.tx.ossl_aead_ctx = NULL;
+	}
+#endif
+	if (s->ipsec.rx.md_ctx) {
+		gcry_md_close(s->ipsec.rx.md_ctx);
+		s->ipsec.rx.md_ctx = NULL;
+	}
+	if (s->ipsec.tx.md_ctx) {
+		gcry_md_close(s->ipsec.tx.md_ctx);
+		s->ipsec.tx.md_ctx = NULL;
+	}
+}
+
+/*
+ * (Re)build the cipher / MAC contexts from s->ipsec.rx.key and
+ * s->ipsec.tx.key and reset the per-SA counters. Called after the initial
+ * quick mode and after every rekey.
+ */
+void ipsec_setup_contexts(struct sa_block *s)
+{
+	ipsec_free_contexts(s);
 
 	s->ipsec.rx.key_cry = s->ipsec.rx.key;
 
@@ -1233,8 +1254,37 @@ void vpnc_doit(struct sa_block *s)
 		s->ipsec.tx.md_ctx = NULL;
 	}
 
+	s->ipsec.tx.seq_id = 1;
+	s->ipsec.rx.seq_id = 0;
+	s->ipsec.life.start = time(NULL);
+	s->ipsec.life.rx = 0;
+	s->ipsec.life.tx = 0;
+
 	DEBUG(2, printf("remote -> local spi: %#08x\n", ntohl(s->ipsec.rx.spi)));
 	DEBUG(2, printf("local -> remote spi: %#08x\n", ntohl(s->ipsec.tx.spi)));
+}
+void vpnc_doit(struct sa_block *s)
+{
+	struct sigaction act;
+	struct encap_method meth;
+
+	const char *pidfile = config[CONFIG_PID_FILE];
+
+	switch (s->ipsec.encap_mode) {
+		case IPSEC_ENCAP_TUNNEL:
+			encap_esp_new(&meth);
+			gcry_create_nonce(&s->ipsec.ip_id, sizeof(uint16_t));
+			break;
+		case IPSEC_ENCAP_UDP_TUNNEL:
+		case IPSEC_ENCAP_UDP_TUNNEL_OLD:
+			encap_udp_new(&meth);
+			break;
+		default:
+			abort();
+	}
+	s->ipsec.em = &meth;
+
+	ipsec_setup_contexts(s);
 
 	do_kill = 0;
 

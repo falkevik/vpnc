@@ -138,6 +138,8 @@ struct sa_block {
 
 extern int volatile do_kill;
 extern void vpnc_doit(struct sa_block *s);
+extern void ipsec_setup_contexts(struct sa_block *s);
+extern void ipsec_free_contexts(struct sa_block *s);
 
 #ifdef USE_OPENSSL
 extern EVP_CIPHER_CTX *ossl_aead_ctx_new(int cry_algo, const uint8_t *key, size_t key_len);
