@@ -1288,12 +1288,13 @@ static void lifetime_ike_process(struct sa_block *s, struct isakmp_attribute *a)
 {
 	uint32_t value;
 
-	assert(a != NULL);
-	assert(a->type == IKE_ATTRIB_LIFE_TYPE);
-	assert(a->af == isakmp_attr_16);
-	assert(a->u.attr_16 == IKE_LIFE_TYPE_SECONDS || a->u.attr_16 == IKE_LIFE_TYPE_K);
-	assert(a->next != NULL);
-//	assert(a->next->type == IKE_ATTRIB_LIFE_DURATION);
+	/* All of this is peer controlled data: validate, never assert. */
+	if (a == NULL || a->type != IKE_ATTRIB_LIFE_TYPE || a->af != isakmp_attr_16
+		|| (a->u.attr_16 != IKE_LIFE_TYPE_SECONDS && a->u.attr_16 != IKE_LIFE_TYPE_K)
+		|| a->next == NULL || a->next->type != IKE_ATTRIB_LIFE_DURATION) {
+		DEBUG(2, printf("got malformed ike lifetime attributes, ignoring\n"));
+		return;
+	}
 
 	if (a->next->af == isakmp_attr_16)
 		value = a->next->u.attr_16;
@@ -1318,19 +1319,23 @@ static void lifetime_ipsec_process(struct sa_block *s, struct isakmp_attribute *
 {
 	uint32_t value;
 
-	assert(a != NULL);
-	assert(a->type == ISAKMP_IPSEC_ATTRIB_SA_LIFE_TYPE);
-	assert(a->af == isakmp_attr_16);
-	assert(a->u.attr_16 == IPSEC_LIFE_SECONDS || a->u.attr_16 == IPSEC_LIFE_K);
-	assert(a->next != NULL);
-	assert(a->next->type == ISAKMP_IPSEC_ATTRIB_SA_LIFE_DURATION);
+	/* All of this is peer controlled data: validate, never assert. */
+	if (a == NULL || a->type != ISAKMP_IPSEC_ATTRIB_SA_LIFE_TYPE || a->af != isakmp_attr_16
+		|| (a->u.attr_16 != IPSEC_LIFE_SECONDS && a->u.attr_16 != IPSEC_LIFE_K)
+		|| a->next == NULL || a->next->type != ISAKMP_IPSEC_ATTRIB_SA_LIFE_DURATION) {
+		DEBUG(2, printf("got malformed ipsec lifetime attributes, ignoring\n"));
+		return;
+	}
 
 	if (a->next->af == isakmp_attr_16)
 		value = a->next->u.attr_16;
 	else if (a->next->af == isakmp_attr_lots && a->next->u.lots.length == 4)
 		value = ntohl(*((uint32_t *) a->next->u.lots.data));
-	else
-		assert(0);
+	else {
+		DEBUG(2, printf("got unknown ipsec lifetime attributes af %d len %d\n",
+					a->next->af, a->next->u.lots.length));
+		return;
+	}
 
 	DEBUG(2, printf("got ipsec lifetime attributes: %d %s\n", value,
 		(a->u.attr_16 == IPSEC_LIFE_SECONDS) ? "seconds" : "kilobyte"));
@@ -1553,7 +1558,7 @@ static void do_phase1_am_packet2(struct sa_block *s, const char *shared_key)
 							break;
 						case IKE_ATTRIB_LIFE_TYPE:
 							/* lifetime duration MUST follow lifetype attribute */
-							if (a->next->type == IKE_ATTRIB_LIFE_DURATION) {
+							if (a->next != NULL && a->next->type == IKE_ATTRIB_LIFE_DURATION) {
 								lifetime_ike_process(s, a);
 							} else
 								reject = ISAKMP_N_BAD_PROPOSAL_SYNTAX;
@@ -2901,7 +2906,7 @@ static void do_phase2_qm(struct sa_block *s)
 						break;
 					case ISAKMP_IPSEC_ATTRIB_SA_LIFE_TYPE:
 						/* lifetime duration MUST follow lifetype attribute */
-						if (a->next->type == ISAKMP_IPSEC_ATTRIB_SA_LIFE_DURATION) {
+						if (a->next != NULL && a->next->type == ISAKMP_IPSEC_ATTRIB_SA_LIFE_DURATION) {
 							lifetime_ipsec_process(s, a);
 						} else
 							reject = ISAKMP_N_BAD_PROPOSAL_SYNTAX;
@@ -3141,7 +3146,7 @@ static int do_rekey(struct sa_block *s, struct isakmp_packet *r)
 			break;
 		case ISAKMP_IPSEC_ATTRIB_SA_LIFE_TYPE:
 			/* lifetime duration MUST follow lifetype attribute */
-			if (a->next->type == ISAKMP_IPSEC_ATTRIB_SA_LIFE_DURATION) {
+			if (a->next != NULL && a->next->type == ISAKMP_IPSEC_ATTRIB_SA_LIFE_DURATION) {
 				lifetime_ipsec_process(s, a);
 			} else
 				return ISAKMP_N_BAD_PROPOSAL_SYNTAX;
