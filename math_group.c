@@ -52,6 +52,7 @@ static void modp_getraw(struct group *, gcry_mpi_t, unsigned char *);
 static int modp_setraw(struct group *, gcry_mpi_t, unsigned char *, int);
 static int modp_setrandom(struct group *, gcry_mpi_t);
 static int modp_operation(struct group *, gcry_mpi_t, gcry_mpi_t, gcry_mpi_t);
+static int modp_valid_public(struct group *, gcry_mpi_t);
 
 /*
  * This module provides access to the operations on the specified group
@@ -122,7 +123,8 @@ static struct group groups[] = {
 		(void (*)(struct group *, void *, unsigned char *))modp_getraw,
 		(int (*)(struct group *, void *, unsigned char *, int))modp_setraw,
 		(int (*)(struct group *, void *))modp_setrandom,
-		(int (*)(struct group *, void *, void *, void *))modp_operation
+		(int (*)(struct group *, void *, void *, void *))modp_operation,
+		(int (*)(struct group *, void *))modp_valid_public
 	},
 	{
 		MODP, OAKLEY_GRP_2, 0, NULL, &oakley_modp[1], NULL, NULL, NULL, NULL, NULL,
@@ -130,7 +132,8 @@ static struct group groups[] = {
 		(void (*)(struct group *, void *, unsigned char *))modp_getraw,
 		(int (*)(struct group *, void *, unsigned char *, int))modp_setraw,
 		(int (*)(struct group *, void *))modp_setrandom,
-		(int (*)(struct group *, void *, void *, void *))modp_operation
+		(int (*)(struct group *, void *, void *, void *))modp_operation,
+		(int (*)(struct group *, void *))modp_valid_public
 	},
 	{
 		MODP, OAKLEY_GRP_5, 0, NULL, &oakley_modp[2], NULL, NULL, NULL, NULL, NULL,
@@ -138,7 +141,8 @@ static struct group groups[] = {
 		(void (*)(struct group *, void *, unsigned char *))modp_getraw,
 		(int (*)(struct group *, void *, unsigned char *, int))modp_setraw,
 		(int (*)(struct group *, void *))modp_setrandom,
-		(int (*)(struct group *, void *, void *, void *))modp_operation
+		(int (*)(struct group *, void *, void *, void *))modp_operation,
+		(int (*)(struct group *, void *))modp_valid_public
 	},
 	{
 		MODP, OAKLEY_GRP_14, 0, NULL, &oakley_modp[3], NULL, NULL, NULL, NULL, NULL,
@@ -146,7 +150,8 @@ static struct group groups[] = {
 		(void (*)(struct group *, void *, unsigned char *))modp_getraw,
 		(int (*)(struct group *, void *, unsigned char *, int))modp_setraw,
 		(int (*)(struct group *, void *))modp_setrandom,
-		(int (*)(struct group *, void *, void *, void *))modp_operation
+		(int (*)(struct group *, void *, void *, void *))modp_operation,
+		(int (*)(struct group *, void *))modp_valid_public
 	},
 };
 
@@ -308,7 +313,7 @@ static int modp_setrandom(struct group *grp, gcry_mpi_t d)
 	gcry_mpi_set_ui(d, 0);
 
 	for (i = 0; i < l; i++) {
-		if (i % 4)
+		if (i % 4 == 0)
 			gcry_randomize((unsigned char *)&tmp, sizeof(tmp), GCRY_STRONG_RANDOM);
 
 		gcry_mpi_mul_2exp(d, d, 8);
@@ -324,4 +329,21 @@ static int modp_operation(struct group *group, gcry_mpi_t d, gcry_mpi_t a, gcry_
 
 	gcry_mpi_powm(d, a, e, grp->p);
 	return 0;
+}
+
+/*
+ * Reject degenerate peer public values: y must satisfy 1 < y < p-1.
+ * Anything else forces the shared secret into a trivial subgroup.
+ */
+static int modp_valid_public(struct group *group, gcry_mpi_t y)
+{
+	struct modp_group *grp = (struct modp_group *)group->group;
+	gcry_mpi_t pm1;
+	int ok;
+
+	pm1 = gcry_mpi_new(group->bits);
+	gcry_mpi_sub_ui(pm1, grp->p, 1);
+	ok = gcry_mpi_cmp_ui(y, 1) > 0 && gcry_mpi_cmp(y, pm1) < 0;
+	gcry_mpi_release(pm1);
+	return ok ? 0 : -1;
 }

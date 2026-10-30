@@ -78,6 +78,7 @@ struct group {
 	int (*setraw) (struct group *, void *, unsigned char *, int);
 	int (*setrandom) (struct group *, void *);
 	int (*operation) (struct group *, void *, void *, void *);
+	int (*valid_public) (struct group *, void *);
 };
 
 /* Prototypes */

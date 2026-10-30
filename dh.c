@@ -69,6 +69,8 @@ int dh_create_shared(struct group *group, unsigned char *secret, unsigned char *
 {
 	if (group->setraw(group, group->b, exchange, group->getlen(group)))
 		return -1;
+	if (group->valid_public && group->valid_public(group, group->b))
+		return -1;
 	if (group->operation(group, group->a, group->b, group->c))
 		return -1;
 	group->getraw(group, group->a, secret);

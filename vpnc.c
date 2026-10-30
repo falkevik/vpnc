@@ -1780,8 +1780,9 @@ static void do_phase1_am_packet2(struct sa_block *s, const char *shared_key)
 
 		/* Determine the shared secret.  */
 		dh_shared_secret = xallocc(dh_getlen(s->ike.dh_grp));
-		dh_create_shared(s->ike.dh_grp, dh_shared_secret, ke->u.ke.data);
 		hex_dump("dh_shared_secret", dh_shared_secret, dh_getlen(s->ike.dh_grp), NULL);
+		if (dh_create_shared(s->ike.dh_grp, dh_shared_secret, ke->u.ke.data) != 0)
+			error(1, 0, "response was invalid: peer sent a degenerate Diffie-Hellman public value");
 		/* Generate SKEYID.  */
 		{
 			gcry_md_open(&skeyid_ctx, s->ike.md_algo, GCRY_MD_FLAG_HMAC);
@@ -1950,8 +1951,9 @@ static void do_phase1_am_packet2(struct sa_block *s, const char *shared_key)
 
 			/* Determine the shared secret.  */
 			dh_shared_secret = xallocc(dh_getlen(s->ike.dh_grp));
-			dh_create_shared(s->ike.dh_grp, dh_shared_secret, ke->u.ke.data);
 			hex_dump("dh_shared_secret", dh_shared_secret, dh_getlen(s->ike.dh_grp), NULL);
+			if (dh_create_shared(s->ike.dh_grp, dh_shared_secret, ke->u.ke.data) != 0)
+				error(1, 0, "response was invalid: peer sent a degenerate Diffie-Hellman public value");
 
 			gcry_md_open(&hm, s->ike.md_algo, GCRY_MD_FLAG_HMAC);
 			gcry_md_setkey(hm, skeyid, s->ike.md_len);
@@ -3020,8 +3022,10 @@ static void do_phase2_qm(struct sa_block *s)
 		if (dh_grp) {
 			/* Determine the shared secret.  */
 			dh_shared_secret = xallocc(dh_getlen(dh_grp));
-			dh_create_shared(dh_grp, dh_shared_secret, ke->u.ke.data);
 			hex_dump("dh_shared_secret", dh_shared_secret, dh_getlen(dh_grp), NULL);
+			if (dh_create_shared(dh_grp, dh_shared_secret, ke->u.ke.data) != 0)
+				phase2_fatal(s, "quick mode response rejected: degenerate DH public value: %s(%d)",
+					ISAKMP_N_INVALID_KEY_INFORMATION);
 		}
 
 		s->ipsec.rx.key = gen_keymat(s, ISAKMP_IPSEC_PROTO_IPSEC_ESP, s->ipsec.rx.spi,
@@ -3205,8 +3209,13 @@ static int do_rekey(struct sa_block *s, struct isakmp_packet *r)
 	if (dh_grp) {
 		/* Determine the shared secret.  */
 		dh_shared_secret = xallocc(dh_getlen(dh_grp));
-		dh_create_shared(dh_grp, dh_shared_secret, ke->u.ke.data);
 		hex_dump("dh_shared_secret", dh_shared_secret, dh_getlen(dh_grp), NULL);
+		if (dh_create_shared(dh_grp, dh_shared_secret, ke->u.ke.data) != 0) {
+			free(dh_shared_secret);
+			group_free(dh_grp);
+			free(dh_public);
+			return ISAKMP_N_INVALID_KEY_INFORMATION;
+		}
 	}
 
 	free(s->ipsec.rx.key);
