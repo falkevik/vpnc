@@ -20,6 +20,7 @@
 #include <string.h>
 #include <errno.h>
 #include <openssl/pem.h>
+#include <openssl/rsa.h>
 #include "config.h"
 #include "sysdep.h"
 #include "crypto.h"
@@ -259,9 +260,10 @@ unsigned char *crypto_decrypt_signature(crypto_ctx *ctx,
 {
 	X509		*x509;
 	EVP_PKEY	*pkey = NULL;
-	RSA		*rsa;
+	EVP_PKEY_CTX	*pkey_ctx = NULL;
 	unsigned char	*hash = NULL;
-	int             tmp_len = -1, ossl_pad;
+	size_t		hash_len;
+	int		ossl_pad, key_size;
 
 	*out_len = 0;
 
@@ -284,14 +286,20 @@ unsigned char *crypto_decrypt_signature(crypto_ctx *ctx,
 		return NULL;
 	}
 
-	rsa = EVP_PKEY_get1_RSA(pkey);
-	if (rsa == NULL) {
+	pkey_ctx = EVP_PKEY_CTX_new(pkey, NULL);
+	if (pkey_ctx == NULL || EVP_PKEY_verify_recover_init(pkey_ctx) <= 0) {
 		ERR_print_errors_fp (stderr);
-		crypto_error_set(error, 1, 0, "error getting public key RSA");
+		crypto_error_set(error, 1, 0, "error initializing public key recovery");
 		goto out;
 	}
 
-	hash = calloc(1, RSA_size(rsa));
+	key_size = EVP_PKEY_size(pkey);
+	if (key_size <= 0) {
+		crypto_error_set(error, 1, 0, "could not determine public key size");
+		goto out;
+	}
+	hash_len = (size_t)key_size;
+	hash = calloc(1, hash_len);
 	if (!hash) {
 		crypto_error_set(error, 1, 0, "not enough memory to decrypt signature");
 		goto out;
@@ -309,19 +317,20 @@ unsigned char *crypto_decrypt_signature(crypto_ctx *ctx,
 		goto out;
 	}
 
-	tmp_len = RSA_public_decrypt(sig_len, sig_data, hash, rsa, ossl_pad);
-	if (tmp_len > 0) {
-		*out_len = (size_t) tmp_len;
-	} else {
+	if (EVP_PKEY_CTX_set_rsa_padding(pkey_ctx, ossl_pad) <= 0 ||
+	    EVP_PKEY_verify_recover(pkey_ctx, hash, &hash_len, sig_data, sig_len) <= 0) {
 		ERR_print_errors_fp (stderr);
 		crypto_error_set(error, 1, 0, "could not decrypt signature");
 		free(hash);
 		hash = NULL;
+	} else {
+		*out_len = hash_len;
 	}
 
 out:
+	if (pkey_ctx)
+		EVP_PKEY_CTX_free(pkey_ctx);
 	if (pkey)
 		EVP_PKEY_free(pkey);
 	return hash;
 }
-
