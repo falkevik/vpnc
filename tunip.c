@@ -488,7 +488,17 @@ static void encap_esp_encapsulate(struct sa_block *s)
 
 	/* Copy initialization vector in packet */
 	iv = (unsigned char *)(eh + 1);
-	gcry_create_nonce(iv, s->ipsec.iv_len);
+	if (s->ipsec.is_aead) {
+		/* RFC 4106: the explicit IV must never repeat under one key.
+		 * Use a counter instead of a random value to avoid birthday
+		 * collisions on long lived SAs. */
+		uint64_t ctr = ++s->ipsec.tx.iv_counter;
+		size_t n;
+		for (n = 0; n < s->ipsec.iv_len; n++)
+			iv[s->ipsec.iv_len - 1 - n] = (uint8_t)(ctr >> (8 * n));
+	} else {
+		gcry_create_nonce(iv, s->ipsec.iv_len);
+	}
 	DEBUG(3, hex_dump("iv", iv, s->ipsec.iv_len, NULL));
 
 	DEBUG(3, hex_dump("sending ESP packet (before crypt)", s->ipsec.tx.buf, s->ipsec.tx.buflen, NULL));
@@ -1310,6 +1320,7 @@ void ipsec_setup_contexts(struct sa_block *s)
 
 	/* fresh SA: reset sequence numbers, replay window and AEAD IV counter */
 	s->ipsec.tx.seq_id = 1;
+	s->ipsec.tx.iv_counter = 0;
 	s->ipsec.rx.seq_id = 0;
 	s->ipsec.rx.replay_win = 0;
 	s->ipsec.life.start = time(NULL);

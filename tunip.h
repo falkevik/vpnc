@@ -42,6 +42,7 @@ struct ike_sa {
 	uint32_t spi;
 	uint32_t seq_id; /* tx: next sequence number to send; rx: highest seen */
 	uint64_t replay_win; /* rx: sliding window bitmap, bit 0 == seq_id */
+	uint64_t iv_counter; /* tx: explicit IV counter for AEAD (RFC 4106) */
 
 	uint8_t *key;
 	uint8_t *key_cry;
