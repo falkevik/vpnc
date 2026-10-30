@@ -681,8 +681,16 @@ static uint16_t unpack_verify_phase2(struct sa_block *s, uint8_t * r_packet,
 			+ r_packet[ISAKMP_PAYLOAD_O + 3]);
 
 		/* Compute the real length based on the payload lengths.  */
-		for (sz = spos; r_packet[sz] != 0; sz += r_packet[sz + 2] << 8 | r_packet[sz + 3]) ;
+		for (sz = spos; sz + 4 <= r_length && r_packet[sz] != 0; sz += r_packet[sz + 2] << 8 | r_packet[sz + 3]) ;
+		if (sz + 4 > r_length) {
+			free_isakmp_packet(r);
+			return ISAKMP_N_UNEQUAL_PAYLOAD_LENGTHS;
+		}
 		sz += r_packet[sz + 2] << 8 | r_packet[sz + 3];
+		if (sz > r_length) {
+			free_isakmp_packet(r);
+			return ISAKMP_N_UNEQUAL_PAYLOAD_LENGTHS;
+		}
 
 		gcry_md_open(&hm, s->ike.md_algo, GCRY_MD_FLAG_HMAC);
 		gcry_md_setkey(hm, s->ike.skeyid_a, s->ike.md_len);
@@ -702,12 +710,11 @@ static uint16_t unpack_verify_phase2(struct sa_block *s, uint8_t * r_packet,
 		if (memcmp(h->u.hash.data, expected_hash, s->ike.md_len) != 0)
 			reject = ISAKMP_N_AUTHENTICATION_FAILED;
 		gcry_md_close(hm);
-#if 0
 		if (reject != 0) {
+			DEBUG(2, printf("phase 2 hash mismatch, dropping packet\n"));
 			free_isakmp_packet(r);
 			return reject;
 		}
-#endif
 	}
 	*r_p = r;
 	return 0;
