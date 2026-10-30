@@ -925,6 +925,8 @@ static void *tun_thread (void *arg)
 }
 #endif
 
+static const char *ipsec_sa_expired(struct sa_block *s);
+
 static void vpnc_main_loop(struct sa_block *s)
 {
 	fd_set rfds, refds;
@@ -1072,6 +1074,16 @@ static void vpnc_main_loop(struct sa_block *s)
 				logmsg(LOG_ERR, "ike recv: %s", strerror(errno));
 			else
 				process_late_ike(s, global_buffer_tx, len);
+		}
+
+		/* Enforce the negotiated SA lifetime ourselves instead of
+		 * trusting the gateway to rekey in time. */
+		{
+			const char *why = ipsec_sa_expired(s);
+			if (why != NULL && !do_kill) {
+				logmsg(LOG_NOTICE, "IPsec SA %s exhausted, rekeying", why);
+				do_phase2_qm(s);
+			}
 		}
 
 		if (timed_mode) {
@@ -1263,6 +1275,26 @@ void ipsec_setup_contexts(struct sa_block *s)
 	DEBUG(2, printf("remote -> local spi: %#08x\n", ntohl(s->ipsec.rx.spi)));
 	DEBUG(2, printf("local -> remote spi: %#08x\n", ntohl(s->ipsec.tx.spi)));
 }
+
+/*
+ * Has the current IPsec SA reached a limit that requires a rekey?
+ * Returns a reason string, or NULL if the SA is still good.
+ */
+static const char *ipsec_sa_expired(struct sa_block *s)
+{
+	time_t now = time(NULL);
+
+	if (s->ipsec.life.seconds && now - s->ipsec.life.start >= (time_t)s->ipsec.life.seconds)
+		return "time lifetime";
+	if (s->ipsec.life.kbytes &&
+		(s->ipsec.life.rx / 1024 + s->ipsec.life.tx / 1024) >= s->ipsec.life.kbytes)
+		return "byte lifetime";
+	/* never let the 32 bit ESP sequence number wrap (RFC 4303 3.3.3) */
+	if (s->ipsec.tx.seq_id >= 0xFFFFFF00u)
+		return "sequence number";
+	return NULL;
+}
+
 void vpnc_doit(struct sa_block *s)
 {
 	struct sigaction act;
