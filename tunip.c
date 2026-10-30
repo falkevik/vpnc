@@ -1068,7 +1068,10 @@ static void vpnc_main_loop(struct sa_block *s)
 		if (s->ike_fd != s->esp_fd && FD_ISSET(s->ike_fd, &refds) ) {
 			DEBUG(3,printf("received something on ike fd..\n"));
 			len = recv(s->ike_fd, global_buffer_tx, MAX_HEADER + MAX_PACKET, 0);
-			process_late_ike(s, global_buffer_tx, len);
+			if (len < 0)
+				logmsg(LOG_ERR, "ike recv: %s", strerror(errno));
+			else
+				process_late_ike(s, global_buffer_tx, len);
 		}
 
 		if (timed_mode) {
