@@ -377,8 +377,13 @@ static void setup_tunnel(struct sa_block *s)
 	setenv("reason", "pre-init", 1);
 	system(config[CONFIG_SCRIPT]);
 
-	if (config[CONFIG_IF_NAME])
-		memcpy(s->tun_name, config[CONFIG_IF_NAME], strlen(config[CONFIG_IF_NAME]));
+	if (config[CONFIG_IF_NAME]) {
+		if (strlen(config[CONFIG_IF_NAME]) >= sizeof(s->tun_name))
+			error(1, 0, "interface name \"%s\" too long (max %d characters)",
+				config[CONFIG_IF_NAME], (int)sizeof(s->tun_name) - 1);
+		strncpy(s->tun_name, config[CONFIG_IF_NAME], sizeof(s->tun_name) - 1);
+		s->tun_name[sizeof(s->tun_name) - 1] = '\0';
+	}
 
 	s->tun_fd = tun_open(s->tun_name, opt_if_mode);
 	DEBUG(2, printf("using interface %s\n", s->tun_name));
