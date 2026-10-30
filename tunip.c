@@ -112,7 +112,7 @@ static const EVP_CIPHER *ossl_aead_cipher(int cry_algo)
 	}
 }
 
-EVP_CIPHER_CTX *ossl_aead_ctx_new(int cry_algo, const uint8_t *key, size_t key_len)
+EVP_CIPHER_CTX *ossl_aead_ctx_new(int cry_algo, const uint8_t *key)
 {
 	EVP_CIPHER_CTX *ctx;
 	const EVP_CIPHER *cipher = ossl_aead_cipher(cry_algo);
@@ -1265,8 +1265,7 @@ void ipsec_setup_contexts(struct sa_block *s)
 	if (s->ipsec.cry_algo) {
 		if (s->ipsec.is_aead) {
 #ifdef USE_OPENSSL
-			s->ipsec.rx.ossl_aead_ctx = ossl_aead_ctx_new(s->ipsec.cry_algo,
-				s->ipsec.rx.key_cry, s->ipsec.key_len);
+			s->ipsec.rx.ossl_aead_ctx = ossl_aead_ctx_new(s->ipsec.cry_algo, s->ipsec.rx.key_cry);
 			if (!s->ipsec.rx.ossl_aead_ctx)
 				error(1, 0, "Failed to create OpenSSL AES-GCM context (rx)");
 			s->ipsec.rx.cry_ctx = NULL;
@@ -1296,8 +1295,7 @@ void ipsec_setup_contexts(struct sa_block *s)
 	if (s->ipsec.cry_algo) {
 		if (s->ipsec.is_aead) {
 #ifdef USE_OPENSSL
-			s->ipsec.tx.ossl_aead_ctx = ossl_aead_ctx_new(s->ipsec.cry_algo,
-				s->ipsec.tx.key_cry, s->ipsec.key_len);
+			s->ipsec.tx.ossl_aead_ctx = ossl_aead_ctx_new(s->ipsec.cry_algo, s->ipsec.tx.key_cry);
 			if (!s->ipsec.tx.ossl_aead_ctx)
 				error(1, 0, "Failed to create OpenSSL AES-GCM context (tx)");
 			s->ipsec.tx.cry_ctx = NULL;

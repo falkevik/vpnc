@@ -65,6 +65,10 @@ void crypto_ctx_free(crypto_ctx *ctx)
 
 static int password_cb(char *buf, int size, int rwflag, void *userdata)
 {
+	(void)buf;
+	(void)size;
+	(void)rwflag;
+	(void)userdata;
 	/* Dummy callback to ensure openssl doesn't prompt for a password */
 	return 0;
 }
