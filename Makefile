@@ -82,8 +82,10 @@ ifeq ($(shell uname -s), SunOS)
 LIBS += -lnsl -lresolv -lsocket
 endif
 ifneq (,$(findstring Apple,$(shell $(CC) --version)))
+ifeq (,$(findstring clang,$(shell $(CC) --version)))
 # enabled in FSF GCC, disabled by default in Apple GCC
 CFLAGS += -fstrict-aliasing -freorder-blocks -fsched-interblock
+endif
 endif
 
 all : $(BINS) vpnc.8
