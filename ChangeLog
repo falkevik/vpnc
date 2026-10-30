@@ -1,3 +1,50 @@
+* vpnc-0.5.6 (unreleased) Fri Oct 30 2026
+
+  Security fixes (from an internal code audit):
+
+     * Enforce the HMAC on all encrypted phase 2 / informational IKE
+       packets. The check was computed but its result discarded, so
+       the control channel had no integrity protection after phase 1.
+     * Fix an unsigned underflow in the ISAKMP proposal parser when the
+       declared proposal length is smaller than its header plus SPI.
+       A spoofed phase 1 response could make vpnc read far past the
+       packet buffer before any authentication took place.
+     * Do not pass a failed recv() (-1) on the IKE socket into the packet
+       decoder; an ICMP port unreachable could crash vpnc or corrupt
+       memory when ESP and IKE use different sockets.
+     * Validate the Diffie-Hellman KE payload length on peer initiated
+       rekeys (heap overflow), and reject degenerate DH public values
+       (0, 1, p-1) in every exchange.
+     * Sanitise gateway supplied strings (banner, default domain, split
+       DNS, application version) before they are exported to the
+       environment of vpnc-script, and remove the eval from the SuSE
+       resolv.conf path of vpnc-script. A malicious gateway could
+       previously run commands as root on the client.
+     * Replace assert()s on peer supplied lifetime attributes with proper
+       validation; malformed attributes could abort vpnc before
+       authentication.
+     * Implement ESP anti-replay protection (64 packet sliding window,
+       RFC 4303 3.4.3).
+     * Enforce the negotiated IPsec SA lifetime (seconds and kbytes) and
+       the ESP sequence number limit locally and rekey when reached,
+       instead of relying on the gateway. Rekeys triggered by a delete
+       or by lifetime expiry now also rebuild the cipher contexts.
+     * Use a counter for the AES-GCM explicit IV as required by RFC 4106
+       instead of a random value.
+     * Sanity check the address in a Cisco load balancing redirect and
+       log the redirect.
+     * Reject an --ifname longer than the interface name buffer instead
+       of overflowing it.
+     * Only dump IKE key material (SKEYID*, encryption key, DH secret,
+       PSK hash) at debug level 99, matching the documentation.
+     * Fix an out of bounds read when printing an empty xauth message
+       and when logging the split DNS list.
+     * Fix the DH private exponent generation, which left its first
+       byte zero.
+     * Wipe keys and configured passwords from memory on shutdown.
+     * Build with stack protector, FORTIFY_SOURCE and PIE (plus RELRO
+       and BIND_NOW on Linux).
+
 * vpnc-0.5.4.tar.gz Tue Apr  9 10:19:16 CEST 2019
 
   User visible changes:
