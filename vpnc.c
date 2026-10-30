@@ -191,6 +191,41 @@ static __inline__ int min(int a, int b)
 	return (a < b) ? a : b;
 }
 
+/*
+ * Values received from the gateway end up in the environment of the
+ * vpnc-script, which is a shell script running as root. Restrict them to a
+ * conservative character set so they can never be interpreted by the shell,
+ * whatever quoting the script uses.
+ *   mode 0: DNS names / search lists: [A-Za-z0-9.-_], space and comma
+ *   mode 1: free text (banner): printable ASCII, space, tab and newline,
+ *           minus the shell metacharacters ` $ \ " ' ; & | < > ( ) { }
+ */
+static char *sanitize_env_value(const uint8_t *data, size_t len, int mode)
+{
+	char *out = xallocc(len + 1);
+	size_t i, o = 0;
+
+	for (i = 0; i < len; i++) {
+		unsigned char c = data[i];
+		int ok;
+
+		if (mode == 0)
+			ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+				|| (c >= '0' && c <= '9') || c == '.' || c == '-'
+				|| c == '_' || c == ' ' || c == ',';
+		else
+			ok = (c >= 0x20 && c < 0x7f && strchr("`$\\\"';&|<>(){}", c) == NULL)
+				|| c == '\n' || c == '\t';
+
+		if (ok)
+			out[o++] = c;
+		else if (mode == 0 && c != 0)
+			out[o++] = '_';
+	}
+	out[o] = '\0';
+	return out;
+}
+
 static void addenv(const void *name, const char *value)
 {
 	char *strbuf = NULL, *oldval;
@@ -1092,8 +1127,7 @@ static int do_config_to_env(struct sa_block *s, struct isakmp_attribute *a)
 				reject = ISAKMP_N_ATTRIBUTES_NOT_SUPPORTED;
 				break;
 			}
-			strbuf = xallocc(a->u.lots.length + 1);
-			memcpy(strbuf, a->u.lots.data, a->u.lots.length);
+			strbuf = sanitize_env_value(a->u.lots.data, a->u.lots.length, 0);
 			addenv("CISCO_DEF_DOMAIN", strbuf);
 			free(strbuf);
 			break;
@@ -1103,19 +1137,18 @@ static int do_config_to_env(struct sa_block *s, struct isakmp_attribute *a)
 				reject = ISAKMP_N_ATTRIBUTES_NOT_SUPPORTED;
 				break;
 			}
-			strbuf = xallocc(a->u.lots.length + 1);
-			memcpy(strbuf, a->u.lots.data, a->u.lots.length);
+			strbuf = sanitize_env_value(a->u.lots.data, a->u.lots.length, 1);
 			addenv("CISCO_BANNER", strbuf);
+			DEBUG(1, printf("Banner: %s\n", strbuf));
 			free(strbuf);
-			DEBUG(1, printf("Banner: "));
-			DEBUG(1, fwrite(a->u.lots.data, a->u.lots.length, 1, stdout));
-			DEBUG(1, printf("\n"));
 			break;
 
 		case ISAKMP_MODECFG_ATTRIB_APPLICATION_VERSION:
-			DEBUG(2, printf("Remote Application Version: "));
-			DEBUG(2, fwrite(a->u.lots.data, a->u.lots.length, 1, stdout));
-			DEBUG(2, printf("\n"));
+			if (a->af == isakmp_attr_lots && opt_debug >= 2) {
+				strbuf = sanitize_env_value(a->u.lots.data, a->u.lots.length, 1);
+				printf("Remote Application Version: %s\n", strbuf);
+				free(strbuf);
+			}
 			break;
 
 		case ISAKMP_MODECFG_ATTRIB_CISCO_DO_PFS:
@@ -1199,11 +1232,10 @@ static int do_config_to_env(struct sa_block *s, struct isakmp_attribute *a)
 				reject = ISAKMP_N_ATTRIBUTES_NOT_SUPPORTED;
 				break;
 			}
-			strbuf = xallocc(a->u.lots.length + 1);
-			memcpy(strbuf, a->u.lots.data, a->u.lots.length);
+			strbuf = sanitize_env_value(a->u.lots.data, a->u.lots.length, 0);
 			addenv("CISCO_SPLIT_DNS", strbuf);
+			DEBUG(2, printf("Split DNS: %s\n", strbuf));
 			free(strbuf);
-			DEBUG(2, printf("Split DNS: %s\n", a->u.lots.data));
 			break;
 
 		case ISAKMP_MODECFG_ATTRIB_CISCO_SAVE_PW:

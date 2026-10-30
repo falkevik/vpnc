@@ -709,7 +709,7 @@ search $DOMAINS"
 					close
 				EOF
 				if [ -n "$CISCO_DEF_DOMAIN" ]; then
-					split_dns_list=$(echo $CISCO_SPLIT_DNS | tr ',' ' ')
+					split_dns_list=$(echo "$CISCO_SPLIT_DNS" | tr ',' ' ')
 					scutil >/dev/null 2>&1 <<-EOF
 						open
 						get State:/Network/Service/$TUNDEV/DNS
@@ -821,11 +821,13 @@ restore_resolvconf_suse_netconfig()
 
 modify_resolvconf_suse()
 {
-	FULL_SCRIPTNAME=`readlink -f $0`
-	RESOLV_OPTS=''
-	test -n "$INTERNAL_IP4_DNS" && RESOLV_OPTS="-n \"$INTERNAL_IP4_DNS\""
-	test -n "$CISCO_DEF_DOMAIN" && RESOLV_OPTS="$RESOLV_OPTS -d $CISCO_DEF_DOMAIN"
-	test -n "$RESOLV_OPTS" && eval /sbin/modify_resolvconf modify -s vpnc -p $SCRIPTNAME -f $FULL_SCRIPTNAME -e $TUNDEV $RESOLV_OPTS -t \"This file was created by $SCRIPTNAME\"
+	FULL_SCRIPTNAME=`readlink -f "$0"`
+	# Build the argument list without eval: the values come from the
+	# VPN gateway and must never be re-parsed by the shell.
+	set --
+	test -n "$INTERNAL_IP4_DNS" && set -- "$@" -n "$INTERNAL_IP4_DNS"
+	test -n "$CISCO_DEF_DOMAIN" && set -- "$@" -d "$CISCO_DEF_DOMAIN"
+	test $# -gt 0 && /sbin/modify_resolvconf modify -s vpnc -p "$SCRIPTNAME" -f "$FULL_SCRIPTNAME" -e "$TUNDEV" "$@" -t "This file was created by $SCRIPTNAME"
 }
 
 # Restore resolv.conf to old contents on Suse
@@ -924,7 +926,7 @@ resolvectl_set_search() {
 modify_resolved_manager() {
 	local if_index split_dns_list
 	if_index=$(get_if_index $TUNDEV)
-	split_dns_list=$(echo $CISCO_SPLIT_DNS | tr ',' ' ')
+	split_dns_list=$(echo "$CISCO_SPLIT_DNS" | tr ',' ' ')
 	resolvectl_set_nameservers $if_index $INTERNAL_IP4_DNS
 	if [ -n "$CISCO_DEF_DOMAIN" ] || [ -n "$split_dns_list" ]; then
 		resolvectl_set_search $if_index $CISCO_DEF_DOMAIN $split_dns_list
