@@ -68,6 +68,11 @@ RELEASE_VERSION := $(shell cat VERSION)
 CC ?= gcc
 CFLAGS ?= -O3 -g
 CFLAGS += -W -Wall -Wmissing-declarations -Wwrite-strings
+# Hardening: stack protector, fortified libc calls, position independent code
+CFLAGS += -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE
+ifeq ($(shell uname -s), Linux)
+LDFLAGS += -pie -Wl,-z,relro -Wl,-z,now
+endif
 CFLAGS +=  $(shell libgcrypt-config --cflags) $(CRYPTO_CFLAGS)
 CPPFLAGS += -DVERSION=\"$(VERSION)\"
 LDFLAGS ?= -g
