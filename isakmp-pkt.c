@@ -675,7 +675,9 @@ static struct isakmp_payload *parse_isakmp_payload(uint8_t type,
 			num_xform = fetch1();
 			hex_dump("length", &num_xform, DUMP_UINT8, NULL);
 
-			if (data_len < r->u.p.spi_size) {
+			/* the declared payload length must cover the fixed header and
+			 * the SPI, otherwise the subtractions below would wrap */
+			if (data_len < r->u.p.spi_size || length < 8u + r->u.p.spi_size) {
 				*reject = ISAKMP_N_PAYLOAD_MALFORMED;
 				return r;
 			}
