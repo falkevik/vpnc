@@ -53,6 +53,10 @@ const supported_algo_t supp_crypt[] = {
 	{"aes128", GCRY_CIPHER_AES128, IKE_ENC_AES_CBC, ISAKMP_IPSEC_ESP_AES, 128},
 	{"aes192", GCRY_CIPHER_AES192, IKE_ENC_AES_CBC, ISAKMP_IPSEC_ESP_AES, 192},
 	{"aes256", GCRY_CIPHER_AES256, IKE_ENC_AES_CBC, ISAKMP_IPSEC_ESP_AES, 256},
+	{NULL, 0, 0, 0, 0}
+};
+
+const supported_algo_t supp_crypt_gcm[] = {
 #ifdef USE_OPENSSL
 	{"aes128gcm", GCRY_CIPHER_AES128, IKE_ENC_AES_CBC, ISAKMP_IPSEC_ESP_AES_GCM_16, 128},
 	{"aes192gcm", GCRY_CIPHER_AES192, IKE_ENC_AES_CBC, ISAKMP_IPSEC_ESP_AES_GCM_16, 192},
@@ -76,49 +80,52 @@ const supported_algo_t supp_auth[] = {
 const supported_algo_t *get_algo(enum algo_group what, enum supp_algo_key key, int id,
 	const char *name, int keylen)
 {
-	const supported_algo_t *sa = NULL;
-	int i = 0, val = 0;
+	const supported_algo_t *sa[2] = {NULL, NULL};
+	int table_count = 1, table, i, val = 0;
 	const char *valname = NULL;
 
 	switch (what) {
 	case SUPP_ALGO_DH_GROUP:
-		sa = supp_dh_group;
+		sa[0] = supp_dh_group;
 		break;
 	case SUPP_ALGO_HASH:
-		sa = supp_hash;
+		sa[0] = supp_hash;
 		break;
 	case SUPP_ALGO_CRYPT:
-		sa = supp_crypt;
+		sa[0] = supp_crypt;
+		sa[1] = supp_crypt_gcm;
+		table_count = 2;
 		break;
 	case SUPP_ALGO_AUTH:
-		sa = supp_auth;
+		sa[0] = supp_auth;
 		break;
 	default:
 		abort();
 	}
 
-	for (i = 0; sa[i].name != NULL; i++) {
-		switch (key) {
-		case SUPP_ALGO_NAME:
-			valname = sa[i].name;
-			break;
-		case SUPP_ALGO_MY_ID:
-			val = sa[i].my_id;
-			break;
-		case SUPP_ALGO_IKE_SA:
-			val = sa[i].ike_sa_id;
-			break;
-		case SUPP_ALGO_IPSEC_SA:
-			val = sa[i].ipsec_sa_id;
-			break;
-		default:
-			abort();
+	for (table = 0; table < table_count; table++) {
+		for (i = 0; sa[table][i].name != NULL; i++) {
+			switch (key) {
+			case SUPP_ALGO_NAME:
+				valname = sa[table][i].name;
+				break;
+			case SUPP_ALGO_MY_ID:
+				val = sa[table][i].my_id;
+				break;
+			case SUPP_ALGO_IKE_SA:
+				val = sa[table][i].ike_sa_id;
+				break;
+			case SUPP_ALGO_IPSEC_SA:
+				val = sa[table][i].ipsec_sa_id;
+				break;
+			default:
+				abort();
+			}
+			if ((key == SUPP_ALGO_NAME) ? !strcasecmp(name, valname) : (val == id))
+				if (keylen == sa[table][i].keylen)
+					return sa[table] + i;
 		}
-		if ((key == SUPP_ALGO_NAME) ? !strcasecmp(name, valname) : (val == id))
-			if (keylen == sa[i].keylen)
-				return sa + i;
 	}
-
 	return NULL;
 }
 

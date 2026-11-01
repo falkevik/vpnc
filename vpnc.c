@@ -2720,6 +2720,7 @@ static struct isakmp_payload *make_our_sa_ipsec(struct sa_block *s)
 	struct isakmp_payload *r;
 	struct isakmp_payload *p = NULL, *pn;
 	struct isakmp_attribute *a;
+	const supported_algo_t *crypt_list;
 	int dh_grp = get_dh_group_ipsec(s->ipsec.do_pfs)->ipsec_sa_id;
 	unsigned int crypt, hash, keylen;
 	int pass;
@@ -2734,18 +2735,13 @@ static struct isakmp_payload *make_our_sa_ipsec(struct sa_block *s)
 	 * AEAD second to guarantee AES-GCM is offered with higher priority.
 	 */
 	for (pass = 0; pass < 2; pass++) {
-		for (crypt = 0; supp_crypt[crypt].name != NULL; crypt++) {
-			int is_aead = ipsec_is_aead_transform(supp_crypt[crypt].ipsec_sa_id);
-			
-			// Skip non-AEAD algorithms in the first pass, and AEAD algorithms in the second pass.
-			// i.e. only offer AEAD algorithms
-			//if (!is_aead)
-			//	continue;
+		int is_aead = pass == 1;
 
-			if ((pass == 0 && is_aead) || (pass == 1 && !is_aead))
-				continue;
-
-			keylen = supp_crypt[crypt].keylen;
+		if (opt_ipsec_aes_gcm_only && !is_aead)
+			continue;
+		crypt_list = is_aead ? supp_crypt_gcm : supp_crypt;
+		for (crypt = 0; crypt_list[crypt].name != NULL; crypt++) {
+			keylen = crypt_list[crypt].keylen;
 			if (is_aead) {
 				pn = p;
 				p = new_isakmp_payload(ISAKMP_PAYLOAD_P);
@@ -2755,7 +2751,7 @@ static struct isakmp_payload *make_our_sa_ipsec(struct sa_block *s)
 				memcpy(p->u.p.spi, &s->ipsec.rx.spi, 4);
 				p->u.p.prot_id = ISAKMP_IPSEC_PROTO_IPSEC_ESP;
 				p->u.p.transforms = new_isakmp_payload(ISAKMP_PAYLOAD_T);
-				p->u.p.transforms->u.t.id = supp_crypt[crypt].ipsec_sa_id;
+				p->u.p.transforms->u.t.id = crypt_list[crypt].ipsec_sa_id;
 				a = make_transform_ipsec(s, dh_grp, 0, keylen, 1);
 				p->u.p.transforms->u.t.attributes = a;
 				p->next = pn;
@@ -2771,7 +2767,7 @@ static struct isakmp_payload *make_our_sa_ipsec(struct sa_block *s)
 				memcpy(p->u.p.spi, &s->ipsec.rx.spi, 4);
 				p->u.p.prot_id = ISAKMP_IPSEC_PROTO_IPSEC_ESP;
 				p->u.p.transforms = new_isakmp_payload(ISAKMP_PAYLOAD_T);
-				p->u.p.transforms->u.t.id = supp_crypt[crypt].ipsec_sa_id;
+				p->u.p.transforms->u.t.id = crypt_list[crypt].ipsec_sa_id;
 				a = make_transform_ipsec(s, dh_grp, supp_hash[hash].ipsec_sa_id, keylen, 0);
 				p->u.p.transforms->u.t.attributes = a;
 				p->next = pn;
@@ -2780,7 +2776,8 @@ static struct isakmp_payload *make_our_sa_ipsec(struct sa_block *s)
 	}
 
 	if (p == NULL)
-		error(1, 0, "No ESP transforms available to offer");
+		error(1, 0, "No ESP transforms available to offer%s",
+			opt_ipsec_aes_gcm_only ? " (AES-GCM requires OpenSSL support)" : "");
 
 	for (i = 0, pn = p; pn; pn = pn->next)
 		pn->u.p.number = i++;

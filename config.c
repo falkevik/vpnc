@@ -45,6 +45,7 @@ const char *config[LAST_CONFIG];
 int opt_debug = 0;
 int opt_nd;
 int opt_1des, opt_no_encryption, opt_auth_mode;
+int opt_ipsec_aes_gcm_only;
 enum natt_mode_enum opt_natt_mode;
 enum vendor_enum opt_vendor;
 enum if_mode_enum opt_if_mode;
@@ -517,6 +518,13 @@ static const struct config_names_s {
 		"enables using no encryption for data traffic (key exchanged must be encrypted)",
 		NULL
 	}, {
+		CONFIG_IPSEC_AES_GCM_ONLY, 0, 1,
+		"--ipsec-aes-gcm-only",
+		"IPsec AES-GCM only",
+		NULL,
+		"offer only AES-GCM transforms for IPsec data traffic",
+		NULL
+	}, {
 		CONFIG_VERSION, 1, 1,
 		"--application-version",
 		"Application version",
@@ -819,6 +827,8 @@ static void print_version(void)
 	printf("Supported Encryptions:");
 	for (i = 0; supp_crypt[i].name != NULL; i++)
 		printf(" %s", supp_crypt[i].name);
+	for (i = 0; supp_crypt_gcm[i].name != NULL; i++)
+		printf(" %s", supp_crypt_gcm[i].name);
 	printf("\n");
 
 	printf("Supported Auth-Methods:");
@@ -906,6 +916,7 @@ void do_config(int argc, char **argv)
 		opt_debug = (config[CONFIG_DEBUG]) ? atoi(config[CONFIG_DEBUG]) : 0;
 		opt_nd = (config[CONFIG_ND]) ? 1 : 0;
 		opt_1des = (config[CONFIG_ENABLE_1DES]) ? 1 : 0;
+		opt_ipsec_aes_gcm_only = (config[CONFIG_IPSEC_AES_GCM_ONLY]) ? 1 : 0;
 
 		if (!strcmp(config[CONFIG_AUTH_MODE], "psk")) {
 			opt_auth_mode = AUTH_MODE_PSK;
